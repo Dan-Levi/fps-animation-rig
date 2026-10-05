@@ -4,6 +4,8 @@ Fil: `Blender/FPS_Rig.blend`. Laget og testet i Blender 5.0, så bruk 5.0 eller 
 
 ![Startposer](images/start_poses.png)
 
+> **Ny i Blender? Start med tutorialen.** Åpne filen (kapittel 0) og gå til **N → FPS Rig → FPS Rig – Tutorial**. Den leder deg steg for steg gjennom en kroppsanimasjon («Huk og opp») og en våpenanimasjon («Pistol: sjekk sliden»), med grønn hake når et steg er gjort. Står du fast, gjør **Vis meg** steget for deg.
+
 ---
 
 ## 0. Første gang du åpner filen
@@ -16,10 +18,14 @@ Fil: `Blender/FPS_Rig.blend`. Laget og testet i Blender 5.0, så bruk 5.0 eller 
 4. Velg riggen og gå til **Pose Mode** (Ctrl+Tab).
 
 Riggen virker fint uten panelet. Panelet gir disse snarveiene:
+- **Action-boksen:** Start/End for klippet (tidslinjen følger automatisk), **Fit to keys**, **Match End to Start** og **Select: All / Body / Fingers / Weapon**.
 - **Weapon for this Action:** hvilket våpen klippet bruker. Det vises automatisk.
 - **Make / Update Weapon Rig:** rigger et nytt våpen (kapittel 8).
 - **Switch Follow (keep pose):** bytter Follow uten at noe hopper.
-- **Eksport:** klipp og våpenmodell.
+- **Eksport:** klipp og våpenmodell, med valg av **Body** og/eller **Weapon**.
+- **FPS Rig – Tutorial:** interaktiv øving for nybegynnere.
+
+**Animation-fanen** øverst i Blender er ferdig oppsatt: den lille 3D-visningen viser FPS-kameraet, den store viser hele figuren, og Dope Sheet står i Action Editor. Det er den beste fanen å animere i.
 
 ---
 
@@ -59,10 +65,13 @@ Hver animasjon er en **Action** i Blender og blir én FBX-fil i Unity. Disse fø
 4. Gi den nytt navn, f.eks. `Pistol_Fire_Hip`. **Navnet blir klippnavnet i Unity.**
 5. Trykk **skjold-ikonet (Fake User)**, så Blender aldri sletter den.
 6. Lager du en animasjon som spilles én gang, altså ikke en loop: i **Graph Editor** velger du alle kanaler (A) og trykker **Shift+E → Clear Cyclic (F-Modifier)**. Idle-posene loopes i Blender, men kopien skal ikke det.
-7. Sett lengden: i Action Editor trykker du **N**, åpner fanen **Action** og huker av **Manual Frame Range**, f.eks. 1–20. Eksporten bruker dette området.
+7. Sett lengden i FPS Rig-panelet: huk av **Manual Range** og skriv **Start** og **End**, f.eks. 1–20. Tidslinjen følger etter, og eksporten bruker dette området. **Fit to keys** setter området til første og siste nøkkel.
 8. Animer kontrollene og sett nøkler med **I**. Hold deg til 30 fps.
 9. Sjekk resultatet i **FPS-visning** (Numpad 0) og i full kropp: velg `External_View` og trykk Ctrl+Numpad 0, eller roter fritt i vinduet.
-10. Eksporter (kapittel 7) og lagre `.blend`-filen.
+10. Skal klippet ende der det startet (tilbake til idle): gå til siste frame og trykk **Match End to Start**. Posen fra første frame kopieres og nøkles på siste frame, for de valgte kontrollene eller for alle hvis ingen er valgt.
+11. Eksporter (kapittel 7) og lagre `.blend`-filen.
+
+**Velge mange kontroller:** **Select: All / Body / Fingers / Weapon** setter figuren og våpenet i Pose Mode samtidig og velger gruppen. Nyttig for å nøkle alt (I), kopiere en hel pose (Ctrl+C, og Ctrl+V på en annen frame) eller bruke Match End på bare én gruppe.
 
 **Reset av en pose:** velg kontrollene og trykk **Alt+G** (posisjon) og **Alt+R** (rotasjon).
 
@@ -214,12 +223,14 @@ Samme oppskrift gjelder hagle (Shell i stedet for Magazine, én gang per patron)
 
 **FPS Rig-panelet → Export this Action** (eller **Export all Actions**).
 
+Knappene **Body** og **Weapon** over eksportknappene velger hva som lages: begge (vanlig), bare kroppsklippet (f.eks. når du bare har endret kroppen), eller bare våpenklippet.
+
 Dette skjer når du trykker:
 1. Den aktive Actionen spilles av frame for frame i Action-ens frame-område, med 30 fps.
 2. Mixamo-skjelettet (65 bein) og `AnimCamera` bakes, altså hver frame lagres som ren beinbevegelse.
 3. Alt det andre blir igjen i Blender: kontroller, mesh og kameraer.
-4. Resultatet skrives til **`Exports/<Action-navn>.fbx`**: **kun skjelett, uten skin**, akkurat som «Without Skin» fra Mixamo.
-5. **Bruker Actionen et rigget våpen**, lages også et våpenklipp: **`Exports/Weapons/<Våpen>/WPN_<Våpen>@<Action>.fbx`**. Det inneholder bare våpenets bein (slide, magasin osv.), målt i forhold til våpenets grep.
+4. Resultatet (med **Body** på) skrives til **`Exports/<Action-navn>.fbx`**: **kun skjelett, uten skin**, akkurat som «Without Skin» fra Mixamo.
+5. **Bruker Actionen et rigget våpen** og **Weapon** er på, lages også et våpenklipp: **`Exports/Weapons/<Våpen>/WPN_<Våpen>@<Action>.fbx`**. Det inneholder bare våpenets bein (slide, magasin osv.), målt i forhold til våpenets grep.
 6. **Export all Actions** gjør det samme for alle Actions i filen.
 7. **Export Weapon Model** (i Weapon-boksen) lager **`Exports/Weapons/<Våpen>/WPN_<Våpen>.fbx`**: våpenets deler og bein i hvilestilling, til prefaben i Unity. Kjør den på nytt når modellen endres.
 
@@ -312,3 +323,26 @@ Det trengs ingen bein i Max.
 - **Ikke flytt, gi nytt navn til eller endre forelder på bein i Edit Mode.** Mixamo-skjelettet må være identisk for Unity.
 - **La de skjulte bein-samlingene `Deform (Mixamo)` og `Mechanism` være skjult.**
 - **Riggen bygges fra kilde-FBX-en med `Blender/scripts/build_fps_rig.py`.** Det trengs bare hvis selve riggen skal endres. Animasjonene dine i en eksisterende fil blir ikke med automatisk.
+
+---
+
+## 10. Arbeidsflyt-tips
+
+- **Animation-fanen:** FPS-kameraet til venstre, hele figuren til høyre. Se mest i kameravisningen, for det er det spilleren ser.
+- **Blocking først:**
+  1. Sett ytterposene først, f.eks. magasin ut og magasin inn.
+  2. Hold en pose noen frames ved å kopiere nøklene (Shift+D i Dope Sheet).
+  3. Vis posene som trinn: velg alle nøkler, **T → Constant**.
+  4. Når timingen sitter: **T → Bezier**, og finpuss i Graph Editor. Velg nøkler og **S X** for å strekke eller korte inn timingen.
+- **Liv i bevegelsen:**
+  - Forskyv timingen litt. La f.eks. hånden starte et par frames før våpenet.
+  - Gi våpenet en liten dupp når det brukes kraft (magasin ut eller inn, slide).
+  - Legg inn en liten «wiggle» eller settle på slutten i stedet for et hardt stopp.
+  - La magasinet «lete» litt før det glir inn.
+  - Bytt grep på magasinet mellom ut og inn, så det ser ut som et nytt magasin.
+  - Ha pekefingeren av avtrekkeren under lading og trekk.
+- **Tilbake til idle:** **Match End to Start** på siste frame. Spill av i loop og sjekk at det ikke hopper.
+- **Motion Paths:** velg hånden eller våpenet, og velg **Pose → Motion Paths → Calculate**. Da ser du banen og kan glatte ut hakk.
+- **Kamera:** grove nøkler på `CTRL_Camera` som følger våpenet, ryddet i Graph Editor. Hold det subtilt, med små rykk på magasin ut og inn. Det justeres uansett etter test i spillet.
+- **Våpenet i bildet:** til høyre og litt lavt, så det ikke dekker siktekorset i `FPS_View`.
+- **Lagre versjoner:** **File → Save Incremental** (eller en git-commit) før store endringer.

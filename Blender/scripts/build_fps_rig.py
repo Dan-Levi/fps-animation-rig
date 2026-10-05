@@ -1113,6 +1113,17 @@ for screen in bpy.data.screens:
                 space.shading.show_backface_culling = True
 scene.display.shading.show_backface_culling = True
 
+# "Animation" tab: the small 3D view looks through the FPS camera, the Dope Sheet is the Action Editor
+anim_screen = bpy.data.screens.get("Animation")
+if anim_screen:
+    views = [a for a in anim_screen.areas if a.type == "VIEW_3D"]
+    if len(views) > 1:
+        small = min(views, key=lambda a: a.width * a.height)
+        small.spaces[0].region_3d.view_perspective = "CAMERA"
+    for area in anim_screen.areas:
+        if area.type == "DOPESHEET_EDITOR":
+            area.spaces[0].ui_mode = "ACTION"
+
 # Embed the FPS Rig panel (registers itself when the file is opened)
 t = bpy.data.texts.new("fps_rig_tools.py")
 t.from_string(open(TOOLS_SCRIPT).read())

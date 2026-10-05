@@ -136,6 +136,15 @@ Still open – needs the Unity project:
 - One Action per clip holds both character and weapon animation (separate action slots). The panel's **Weapon for this Action** + a persistent handler show the right weapon and share the Action with its rig (also after duplicating an Action).
 - Export: character clip as before; weapon clip `Exports/Weapons/<W>/WPN_<W>@<Action>.fbx` (deform bones relative to the weapon root, baked on a temporary unconstrained copy); weapon model `WPN_<W>.fbx` (Generic). Examples: `WPN_Pistol` (Frame/Slide/Trigger/Magazine/Muzzle/Eject) with `Pistol_Fire` and `Pistol_Reload`; `WPN_Shotgun` (Receiver/Pump/Trigger/Shell) rigged with the same tool.
 
+## 7d. Workflow helpers (v1.3)
+
+- The timeline follows the active Action's frame range (same persistent handler, only when the Action or its range changes). The panel shows the Action's Start/End/Manual Range, plus **Fit to keys** (range = first..last key over all slots).
+- **Match End to Start**: copies the first-frame pose (transforms, Follow sliders, part scale) of the selected controls (or all character + weapon controls) to the last frame and keys it.
+- **Select: All / Body / Fingers / Weapon**: character + the Action's weapon rig in multi-object Pose Mode; controls in hidden bone collections are skipped.
+- Export toggles **Body** / **Weapon** (scene properties) choose the character clip, the weapon clip or both.
+- The "Animation" workspace: small 3D view through `FPS_View`, Dope Sheet in Action Editor mode.
+- **FPS Rig – Tutorial** sub-panel: two data-driven, step-by-step tutorials (`Tut_Crouch`, `Tut_PistolCheck`) with automatic step checks and *Prepare* / *Show me* buttons. They use the same functions as the panel. *Start over* deletes the practice Action. Practice exports are git-ignored.
+
 ## 8. Out of scope for this version
 
 - Foot: no heel/toe roll pivots or roll slider – the foot rotates around the ankle, so heel-lifts and tip-toe need foot rotation plus a counter-move, or `CTRL_Toe`. No knee-snap softening: near full leg extension the IK can pop. No automatic floor contact.

@@ -31,3 +31,7 @@ _cache/
 
 # Keep production source and exports tracked.
 # FBX and BLEND files are handled by Git LFS via .gitattributes.
+
+# Tutorial practice exports (FPS Rig – Tutorial panel)
+Exports/Tut_*.fbx
+Exports/Weapons/*/*@Tut_*.fbx

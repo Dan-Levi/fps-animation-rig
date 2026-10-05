@@ -1,10 +1,12 @@
 """FPS Rig tools: an "FPS Rig" tab in the 3D View sidebar (N panel).
 
+- Action: Start/End (the timeline follows), Fit to keys, Match End to Start, Select control groups.
 - Switch Follow (keep pose): flip a control's Follow slider without the control jumping.
 - Weapon for this Action: which weapon an Action uses (shown automatically, shares the Action).
 - Make / Update Weapon Rig: build a small rig for a weapon from its separate part objects.
 - Export this Action / Export all Actions: character clip (+ weapon clip) per Action.
 - Export Weapon Model: the weapon's model + skeleton for a Unity prefab.
+- FPS Rig – Tutorial: step-by-step practice for a body and a weapon animation.
 
 Embedded in Blender/FPS_Rig.blend as a text block that registers itself when the file is
 opened (if Blender blocks scripts: click "Allow Execution", or open the text and Run Script).
@@ -224,12 +226,17 @@ def weapon_sync_handler(scene, depsgraph=None):
     arm = bpy.data.objects.get(ARMATURE)
     act = arm.animation_data.action if arm and arm.animation_data else None
     name = act.get("Weapon", "") if act else ""
-    key = (act.name if act else "", name)
+    rng = tuple(int(round(f)) for f in act.frame_range) if act else None
+    key = (act.name if act else "", name, rng)
     if key == _sync_state["key"]:
         return
     _sync_state["key"] = key
     try:
         apply_weapon(name, act)
+        # the timeline follows the Action's frame range (only when the Action or its range changes)
+        sc = bpy.context.scene
+        if rng and (sc.frame_start, sc.frame_end) != rng:
+            sc.frame_start, sc.frame_end = rng
     except Exception as e:  # never break the UI from a handler
         print("FPS Rig weapon sync:", e)
 
@@ -688,24 +695,39 @@ def export_weapon_model(wobj, filepath=None):
     return filepath
 
 
+def export_choices():
+    """(character, weapon) export toggles from the FPS Rig panel (both on by default)."""
+    sc = bpy.context.scene
+    return getattr(sc, "fpsrig_export_character", True), getattr(sc, "fpsrig_export_weapon", True)
+
+
 def export_active_action(filepath=None):
-    """Character clip to Exports/<Action>.fbx (+ weapon clip if the Action uses a rigged weapon)."""
+    """Character clip to Exports/<Action>.fbx and/or the weapon clip, per the panel's Body/Weapon toggles."""
     arm = get_rig()
     act = arm.animation_data.action if arm.animation_data else None
     if act is None:
         raise RuntimeError("The rig has no active Action. Assign one in the Action Editor first.")
+    do_char, do_weapon = export_choices()
+    wobj = weapon_rig(act.get("Weapon", "")) if do_weapon else None
+    if not do_char and not do_weapon:
+        raise RuntimeError("Nothing to export: tick Body and/or Weapon in the FPS Rig panel.")
+    if not do_char and wobj is None:
+        raise RuntimeError(f"'{act.name}' has no rigged weapon (Weapon for this Action), and Body is off.")
     start, end = (int(round(f)) for f in act.frame_range)
-    if filepath is None:
-        filepath = os.path.join(_exports_dir(), bpy.path.clean_name(act.name) + ".fbx")
-    with _ExportState(start, end, act.name):
-        arm.select_set(True)
-        bpy.context.view_layer.objects.active = arm
-        _fbx(filepath, {"ARMATURE"}, bake=True)
-    print(f"Exported '{act.name}' frames {start}-{end} -> {filepath}")
-    wobj = weapon_rig(act.get("Weapon", ""))
+    result = None
+    if do_char:
+        if filepath is None:
+            filepath = os.path.join(_exports_dir(), bpy.path.clean_name(act.name) + ".fbx")
+        with _ExportState(start, end, act.name):
+            arm.select_set(True)
+            bpy.context.view_layer.objects.active = arm
+            _fbx(filepath, {"ARMATURE"}, bake=True)
+        print(f"Exported '{act.name}' frames {start}-{end} -> {filepath}")
+        result = filepath
     if wobj is not None:
-        export_weapon_action(act, wobj)
-    return filepath
+        wpath = export_weapon_action(act, wobj)
+        result = result or wpath
+    return result
 
 
 def rig_actions(arm):
@@ -731,7 +753,10 @@ def export_all_actions():
         for act, slot in rig_actions(arm):
             ad.action = act
             ad.action_slot = slot
-            paths.append(export_active_action())
+            try:
+                paths.append(export_active_action())
+            except RuntimeError as e:  # e.g. Body off and this Action has no rigged weapon
+                print(f"Skipped '{act.name}': {e}")
     finally:
         ad.action = prev[0]
         if prev[0]:
@@ -740,10 +765,533 @@ def export_all_actions():
     return paths
 
 
-# ---------------------------------------------------------------- UI
+# ---------------------------------------------------------------- timeline / selection / match end
 def _active_action():
     arm = get_rig()
     return arm.animation_data.action if arm and arm.animation_data else None
+
+
+def action_key_range(act):
+    """First and last keyframe over all slots (character and weapon)."""
+    frames = []
+    for slot in act.slots:
+        cb = anim_utils.action_get_channelbag_for_slot(act, slot)
+        if cb:
+            for fc in cb.fcurves:
+                frames += [kp.co[0] for kp in fc.keyframe_points]
+    return (min(frames), max(frames)) if frames else (None, None)
+
+
+def fit_range_to_keys(act):
+    lo, hi = action_key_range(act)
+    if lo is None:
+        return False
+    act.use_frame_range = True
+    act.frame_start, act.frame_end = int(round(lo)), int(round(max(hi, lo + 1)))
+    return True
+
+
+FINGER_PREFIXES = ("CTRL_Grip", "CTRL_Thumb", "CTRL_Index", "CTRL_Middle", "CTRL_Ring", "CTRL_Pinky")
+GROUP_ITEMS = [("ALL", "All", "All controls of the character and the weapon"),
+               ("BODY", "Body", "Character controls except fingers"),
+               ("FINGERS", "Fingers", "Finger controls (both hands)"),
+               ("WEAPON", "Weapon", "CTRL_Weapon and the weapon's part controls")]
+
+
+def _shown(pb):
+    cols = pb.bone.collections
+    return not cols or any(c.is_visible for c in cols)
+
+
+def rigs():
+    """(character, weapon rig of the active Action or None)."""
+    act = _active_action()
+    return get_rig(), (weapon_rig(act.get("Weapon", "")) if act else None)
+
+
+def control_group(group, visible_only=True):
+    arm, wobj = rigs()
+    ok = (lambda pb: _shown(pb)) if visible_only else (lambda pb: True)
+    char = [(arm, pb) for pb in arm.pose.bones if pb.name.startswith("CTRL_") and ok(pb)]
+    weap = [(wobj, pb) for pb in wobj.pose.bones if pb.name.startswith("CTRL_") and ok(pb)] if wobj else []
+    fingers = [(o, pb) for o, pb in char if pb.name.startswith(FINGER_PREFIXES)]
+    if group == "ALL":
+        return char + weap
+    if group == "BODY":
+        return [(o, pb) for o, pb in char if not pb.name.startswith(FINGER_PREFIXES)]
+    if group == "FINGERS":
+        return fingers
+    return [(o, pb) for o, pb in char if pb.name == "CTRL_Weapon"] + weap
+
+
+def enter_pose_mode():
+    """Character + the Action's weapon rig together in Pose Mode (multi-object)."""
+    arm, wobj = rigs()
+    objs = [arm] + ([wobj] if wobj else [])
+    if all(o.mode == "POSE" for o in objs) and bpy.context.object in objs:
+        return objs
+    if bpy.context.object and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    for o in objs:
+        o.hide_set(False)
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    return objs
+
+
+def _set_select(pb, state):
+    if hasattr(pb, "select"):
+        pb.select = state
+    else:
+        pb.bone.select = state
+
+
+def _is_selected(pb):
+    return pb.select if hasattr(pb, "select") else pb.bone.select
+
+
+def select_controls(group):
+    objs = enter_pose_mode()
+    for o in objs:
+        for pb in o.pose.bones:
+            _set_select(pb, False)
+    chosen = control_group(group)
+    for o, pb in chosen:
+        _set_select(pb, True)
+    if chosen:
+        o, pb = chosen[0]
+        o.data.bones.active = pb.bone
+    return chosen
+
+
+def select_bone(obj, name):
+    objs = enter_pose_mode()
+    for o in objs:
+        for pb in o.pose.bones:
+            _set_select(pb, False)
+    pb = obj.pose.bones[name]
+    _set_select(pb, True)
+    obj.data.bones.active = pb.bone
+    bpy.context.view_layer.objects.active = obj
+
+
+def match_end_to_start(only_selected=True):
+    """Copy the pose of the Action's first frame to its last frame and key it (selected controls, or all)."""
+    act = _active_action()
+    if act is None:
+        raise RuntimeError("No active Action.")
+    arm, wobj = rigs()
+    if wobj:
+        ensure_weapon_action(wobj, act)
+    every = control_group("ALL", visible_only=False)
+    chosen = [(o, pb) for o, pb in every if _is_selected(pb)] if only_selected else []
+    chosen = chosen or every
+    sc = bpy.context.scene
+    start, end = (int(round(f)) for f in act.frame_range)
+    sc.frame_set(start)
+    saved = {}
+    for o, pb in chosen:
+        prop = follow_prop(pb)
+        saved[(o.name, pb.name)] = (pb.matrix_basis.copy(), pb[prop] if prop else None)
+    sc.frame_set(end)
+    for o, pb in chosen:
+        basis, value = saved[(o.name, pb.name)]
+        pb.matrix_basis = basis
+        prop = follow_prop(pb)
+        if prop:
+            pb[prop] = value
+    for o in {o for o, _ in chosen}:
+        o.update_tag()
+    upd()
+    for o, pb in chosen:
+        key_control(o, pb.name, end)
+    return len(chosen)
+
+
+# ---------------------------------------------------------------- interactive tutorial
+def _export_path(*parts):
+    base = bpy.path.abspath("//") or os.getcwd()
+    return os.path.normpath(os.path.join(base, "..", "Exports", *parts))
+
+
+def _fc(obj, bone, prop, index):
+    path = f'pose.bones["{bone}"].{prop}'
+    for fc in action_fcurves(obj):
+        if fc.data_path == path and fc.array_index == index:
+            return fc
+    return None
+
+
+def _has_key(obj, bone, frame, prop="location"):
+    for fc in action_fcurves(obj):
+        if fc.data_path.startswith(f'pose.bones["{bone}"].{prop}') and any(abs(k.co[0] - frame) < 0.5 for k in fc.keyframe_points):
+            return True
+    return False
+
+
+def _value(obj, bone, prop, index, frame):
+    fc = _fc(obj, bone, prop, index)
+    return fc.evaluate(frame) if fc else None
+
+
+def _quat_at(obj, bone, frame):
+    from mathutils import Quaternion
+    vals = [_value(obj, bone, "rotation_quaternion", i, frame) for i in range(4)]
+    return None if None in vals else Quaternion(vals)
+
+
+TUT = {
+    "BODY": {"action": "Tut_Crouch", "source": "Unarmed_Idle", "range": (1, 30), "weapon": ""},
+    "WEAPON": {"action": "Tut_PistolCheck", "source": "Pistol_Idle_Hip", "range": (1, 40), "weapon": "Pistol"},
+}
+
+
+def tut_action_ok(kind):
+    act = _active_action()
+    return act is not None and act.name == TUT[kind]["action"]
+
+
+def tut_new_action(kind):
+    """Fresh tutorial Action: a copy of the start pose with only its first-frame keys, no loop."""
+    cfg = TUT[kind]
+    old = bpy.data.actions.get(cfg["action"])
+    if old:
+        bpy.data.actions.remove(old)
+    act = bpy.data.actions[cfg["source"]].copy()
+    act.name = cfg["action"]
+    start, end = cfg["range"]
+    for slot in act.slots:
+        cb = anim_utils.action_get_channelbag_for_slot(act, slot)
+        if not cb:
+            continue
+        for fc in cb.fcurves:
+            for m in list(fc.modifiers):
+                fc.modifiers.remove(m)  # no loop
+            for kp in reversed(list(fc.keyframe_points)):
+                if kp.co[0] > start + 0.5:
+                    fc.keyframe_points.remove(kp)  # keep just the start pose
+    act.use_fake_user = True
+    act.use_frame_range = True
+    act.frame_start, act.frame_end = start, end
+    act["Weapon"] = cfg["weapon"]
+    arm = get_rig()
+    ad = arm.animation_data_create()
+    ad.action = act
+    ad.action_slot = next(s for s in act.slots if not s.name_display.startswith("WPN_"))
+    _sync_state["key"] = None
+    apply_weapon(cfg["weapon"], act)
+    bpy.context.scene.frame_set(start)
+    return act
+
+
+def _tut_ensure(kind):
+    if not tut_action_ok(kind):
+        tut_new_action(kind)
+
+
+def _go(frame):
+    bpy.context.scene.frame_set(frame)
+
+
+# --- body tutorial: crouch and stand up
+def _b_crouch_do():
+    _tut_ensure("BODY")
+    _go(15)
+    arm = get_rig()
+    select_bone(arm, "CTRL_Torso")
+    arm.pose.bones["CTRL_Torso"].location = (0, -0.30, 0)
+    key_control(arm, "CTRL_Torso", 15)
+
+
+def _b_crouch_check():
+    v = _value(get_rig(), "CTRL_Torso", "location", 1, 15)
+    return tut_action_ok("BODY") and _has_key(get_rig(), "CTRL_Torso", 15) and v is not None and v < -0.12
+
+
+def _b_head_do():
+    _tut_ensure("BODY")
+    _go(15)
+    arm = get_rig()
+    select_bone(arm, "CTRL_Head")
+    arm.pose.bones["CTRL_Head"].rotation_euler = (math.radians(15), 0, 0)
+    key_control(arm, "CTRL_Head", 15)
+
+
+def _b_head_check():
+    v = _value(get_rig(), "CTRL_Head", "rotation_euler", 0, 15)
+    return tut_action_ok("BODY") and _has_key(get_rig(), "CTRL_Head", 15, "rotation") and v is not None and abs(v) > math.radians(5)
+
+
+def _match_do(kind):
+    def do():
+        _tut_ensure(kind)
+        enter_pose_mode()
+        match_end_to_start(only_selected=False)
+    return do
+
+
+def _match_check(kind, bone, prop, index):
+    def check():
+        if not tut_action_ok(kind):
+            return False
+        end = TUT[kind]["range"][1]
+        a, b = _value(get_rig(), bone, prop, index, 1), _value(get_rig(), bone, prop, index, end)
+        return _has_key(get_rig(), bone, end, prop.split("_")[0]) and a is not None and b is not None and abs(a - b) < 1e-4
+    return check
+
+
+def _export_do(kind):
+    def do():
+        _tut_ensure(kind)
+        sc = bpy.context.scene
+        if hasattr(sc, "fpsrig_export_character"):
+            sc.fpsrig_export_character = True
+            sc.fpsrig_export_weapon = True
+        export_active_action()
+    return do
+
+
+def _w_select_do():
+    _tut_ensure("WEAPON")
+    select_controls("WEAPON")
+
+
+def _w_select_check():
+    arm, wobj = rigs()
+    return tut_action_ok("WEAPON") and wobj is not None and arm.mode == "POSE" and wobj.mode == "POSE"
+
+
+def _w_lift_do():
+    _tut_ensure("WEAPON")
+    _go(12)
+    arm = get_rig()
+    select_bone(arm, "CTRL_Weapon")
+    pb = arm.pose.bones["CTRL_Weapon"]
+    m = pb.matrix.copy()
+    lift = arm.matrix_world.inverted().to_3x3() @ Vector((0, 0, 0.05))
+    m = Matrix.Translation(lift) @ m @ Matrix.Rotation(math.radians(35), 4, "Z") @ Matrix.Rotation(math.radians(20), 4, "X")
+    pb.matrix = Matrix.LocRotScale(m.translation, m.to_quaternion(), Vector((1, 1, 1)))
+    upd()
+    key_control(arm, "CTRL_Weapon", 12)
+
+
+def _w_lift_check():
+    a, b = _quat_at(get_rig(), "CTRL_Weapon", 1), _quat_at(get_rig(), "CTRL_Weapon", 12)
+    return (tut_action_ok("WEAPON") and _has_key(get_rig(), "CTRL_Weapon", 12, "rotation") and a is not None and b is not None
+            and math.degrees(a.rotation_difference(b).angle) > 10)
+
+
+def _w_hold_do():
+    _tut_ensure("WEAPON")
+    _go(30)
+    arm = get_rig()
+    select_bone(arm, "CTRL_Weapon")
+    key_control(arm, "CTRL_Weapon", 30)
+
+
+def _w_hold_check():
+    a, b = _quat_at(get_rig(), "CTRL_Weapon", 12), _quat_at(get_rig(), "CTRL_Weapon", 30)
+    return (tut_action_ok("WEAPON") and _has_key(get_rig(), "CTRL_Weapon", 30, "rotation") and a is not None and b is not None
+            and math.degrees(a.rotation_difference(b).angle) < 1)
+
+
+def _w_slide_prepare():
+    _tut_ensure("WEAPON")
+    wobj = rigs()[1]
+    _go(17)
+    select_bone(wobj, "CTRL_Slide")
+    wobj.pose.bones["CTRL_Slide"].location = (0, 0, 0)
+    key_control(wobj, "CTRL_Slide", 17)  # slide at rest just before it is pulled
+    _go(20)
+
+
+def _w_slide_do():
+    _w_slide_prepare()
+    wobj = rigs()[1]
+    wobj.pose.bones["CTRL_Slide"].location = (0, 0.025, 0)
+    key_control(wobj, "CTRL_Slide", 20)
+
+
+def _w_slide_check():
+    wobj = rigs()[1]
+    v = _value(wobj, "CTRL_Slide", "location", 1, 20) if wobj else None
+    return tut_action_ok("WEAPON") and v is not None and v > 0.01 and _has_key(wobj, "CTRL_Slide", 20)
+
+
+def _w_slide_fwd_prepare():
+    _tut_ensure("WEAPON")
+    _go(24)
+    select_bone(rigs()[1], "CTRL_Slide")
+
+
+def _w_slide_fwd_do():
+    _w_slide_fwd_prepare()
+    wobj = rigs()[1]
+    wobj.pose.bones["CTRL_Slide"].location = (0, 0, 0)
+    key_control(wobj, "CTRL_Slide", 24)
+
+
+def _w_slide_fwd_check():
+    wobj = rigs()[1]
+    v = _value(wobj, "CTRL_Slide", "location", 1, 24) if wobj else None
+    return tut_action_ok("WEAPON") and v is not None and abs(v) < 0.003 and _has_key(wobj, "CTRL_Slide", 24)
+
+
+def _always():
+    return True
+
+
+TUTORIALS = {
+    "BODY": [
+        {"title": "Velkommen", "text": [
+            "Du lager en enkel kroppsanimasjon:",
+            "figuren går ned i huk og opp igjen.",
+            "Hvert steg: les teksten, gjør det selv,",
+            "og se etter den grønne haken.",
+            "Står du fast: trykk «Vis meg».",
+            "Trykk «Neste» for å starte."], "check": _always},
+        {"title": "1. Ny animasjon", "text": [
+            "Hver animasjon er en Action.",
+            "Trykk «Vis meg» for å lage Tut_Crouch",
+            "(kopi av Unarmed_Idle, 30 frames).",
+            "Til vanlig: Action Editor → duplikat-",
+            "knappen ved navnet, gi nytt navn."],
+         "do": lambda: tut_new_action("BODY"), "check": lambda: tut_action_ok("BODY")},
+        {"title": "2. Ned i huk (frame 15)", "text": [
+            "Trykk «Gjør klart»: går til frame 15",
+            "og velger CTRL_Torso (boksen ved hofta).",
+            "Hold musa i 3D-vinduet:",
+            "G, Z, skriv -0.3, Enter  (30 cm ned).",
+            "Trykk I for å sette en nøkkel.",
+            "Se: føttene blir stående, knærne bøyes."],
+         "prepare": lambda: (_tut_ensure("BODY"), _go(15), select_bone(get_rig(), "CTRL_Torso")),
+         "do": _b_crouch_do, "check": _b_crouch_check},
+        {"title": "3. Se litt ned (frame 15)", "text": [
+            "«Gjør klart» velger CTRL_Head.",
+            "R, X, skriv 15, Enter  (hodet ned).",
+            "Trykk I for å sette en nøkkel."],
+         "prepare": lambda: (_tut_ensure("BODY"), _go(15), select_bone(get_rig(), "CTRL_Head")),
+         "do": _b_head_do, "check": _b_head_check},
+        {"title": "4. Tilbake til start (frame 30)", "text": [
+            "Klippet skal slutte slik det startet.",
+            "Velg bort alt (Alt+A i 3D-vinduet),",
+            "og trykk «Match End to Start» i",
+            "FPS Rig-panelet over: posen fra",
+            "frame 1 kopieres til frame 30."],
+         "prepare": lambda: (_tut_ensure("BODY"), _go(30)),
+         "do": _match_do("BODY"), "check": _match_check("BODY", "CTRL_Torso", "location", 1)},
+        {"title": "5. Se resultatet", "text": [
+            "Space spiller av (Space igjen stopper).",
+            "Numpad 0 = gjennom FPS-kameraet,",
+            "Numpad 0 igjen = tilbake.",
+            "Vil du endre noe: flytt til en frame,",
+            "endre posen og trykk I igjen."],
+         "prepare": lambda: _go(1), "check": _always},
+        {"title": "6. Eksporter til Unity", "text": [
+            "Trykk «Export this Action» (FPS Rig).",
+            "Filen havner i Exports/Tut_Crouch.fbx.",
+            "I Unity: Humanoid + Copy From Other",
+            "Avatar, som med Mixamo-klipp."],
+         "do": _export_do("BODY"), "check": lambda: os.path.exists(_export_path("Tut_Crouch.fbx"))},
+        {"title": "Ferdig!", "text": [
+            "Du har laget, finpusset og eksportert",
+            "en animasjon. Neste: prøv",
+            "Våpen-tutorialen i menyen over.",
+            "«Start på nytt» sletter øvingsklippet."], "check": _always},
+    ],
+    "WEAPON": [
+        {"title": "Velkommen", "text": [
+            "Du animerer kropp og våpen sammen:",
+            "løft pistolen, trekk sliden bak og",
+            "fram, og tilbake til hofteposisjon.",
+            "Begge havner i samme Action.",
+            "Trykk «Neste» for å starte."], "check": _always},
+        {"title": "1. Ny animasjon", "text": [
+            "«Vis meg» lager Tut_PistolCheck",
+            "(kopi av Pistol_Idle_Hip, 40 frames).",
+            "Pistolen vises automatisk, fordi",
+            "Actionen bruker våpenet «Pistol»."],
+         "do": lambda: tut_new_action("WEAPON"),
+         "check": lambda: tut_action_ok("WEAPON") and _active_action().get("Weapon") == "Pistol"},
+        {"title": "2. Velg begge riggene", "text": [
+            "Trykk «Select: Weapon» i FPS Rig.",
+            "Da er figuren og pistolen i Pose Mode",
+            "samtidig, og du kan ta tak i",
+            "kontrollene på begge."],
+         "do": _w_select_do, "check": _w_select_check},
+        {"title": "3. Løft pistolen (frame 12)", "text": [
+            "«Gjør klart» velger CTRL_Weapon",
+            "(den oransje boksen langs løpet).",
+            "R, Z, 35, Enter (vri inn mot deg),",
+            "R, X, 20, Enter (vipp), G, Z, 0.05.",
+            "Trykk I. Hendene følger med."],
+         "prepare": lambda: (_tut_ensure("WEAPON"), _go(12), select_bone(get_rig(), "CTRL_Weapon")),
+         "do": _w_lift_do, "check": _w_lift_check},
+        {"title": "4. Hold posen (frame 30)", "text": [
+            "«Gjør klart» går til frame 30.",
+            "Trykk bare I (ikke flytt noe):",
+            "pistolen holder posen fra 12 til 30."],
+         "prepare": lambda: (_tut_ensure("WEAPON"), _go(30), select_bone(get_rig(), "CTRL_Weapon")),
+         "do": _w_hold_do, "check": _w_hold_check},
+        {"title": "5. Slide bak (frame 20)", "text": [
+            "«Gjør klart» nøkler sliden i ro på",
+            "frame 17, går til 20 og velger",
+            "CTRL_Slide. Sett Location Y = 0.025",
+            "i N → Item (eller G og dra: sliden",
+            "kan bare gli langs løpet). Trykk I."],
+         "prepare": _w_slide_prepare, "do": _w_slide_do, "check": _w_slide_check},
+        {"title": "6. Slide fram (frame 24)", "text": [
+            "«Gjør klart» går til frame 24.",
+            "Alt+G nullstiller sliden. Trykk I."],
+         "prepare": _w_slide_fwd_prepare, "do": _w_slide_fwd_do, "check": _w_slide_fwd_check},
+        {"title": "7. Tilbake til start (frame 40)", "text": [
+            "Velg bort alt (Alt+A) og trykk",
+            "«Match End to Start»: kropp OG",
+            "pistol får startposen på frame 40."],
+         "prepare": lambda: (_tut_ensure("WEAPON"), _go(40)),
+         "do": _match_do("WEAPON"), "check": _match_check("WEAPON", "CTRL_Weapon", "rotation_quaternion", 0)},
+        {"title": "8. Se resultatet", "text": [
+            "Space spiller av, Numpad 0 viser",
+            "FPS-kameraet. Velg gjerne en frame",
+            "og juster pose – trykk I igjen."],
+         "prepare": lambda: _go(1), "check": _always},
+        {"title": "9. Eksporter", "text": [
+            "Kryss av Body og Weapon, og trykk",
+            "«Export this Action». Du får:",
+            " Exports/Tut_PistolCheck.fbx (kropp)",
+            " Exports/Weapons/Pistol/",
+            "   WPN_Pistol@Tut_PistolCheck.fbx"],
+         "do": _export_do("WEAPON"),
+         "check": lambda: os.path.exists(_export_path("Tut_PistolCheck.fbx")) and os.path.exists(
+             _export_path("Weapons", "Pistol", "WPN_Pistol@Tut_PistolCheck.fbx"))},
+        {"title": "Ferdig!", "text": [
+            "Kropp og våpen er animert i samme",
+            "Action og eksportert hver for seg.",
+            "Se Docs/ANIMATOR_GUIDE.md for",
+            "lading, skudd og nye våpen."], "check": _always},
+    ],
+}
+
+
+def tut_reset(kind):
+    act = bpy.data.actions.get(TUT[kind]["action"])
+    arm = get_rig()
+    if bpy.context.object and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    back = bpy.data.actions.get(TUT[kind]["source"])
+    if back:
+        arm.animation_data.action = back
+        arm.animation_data.action_slot = next(s for s in back.slots if not s.name_display.startswith("WPN_"))
+    if act:
+        bpy.data.actions.remove(act)
+    _sync_state["key"] = None
+    bpy.context.scene.fpsrig_tut_step = 0
+
+
+# ---------------------------------------------------------------- UI
 
 
 class FPSRIG_OT_switch_follow(bpy.types.Operator):
@@ -872,6 +1420,107 @@ class FPSRIG_OT_export_weapon_model(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FPSRIG_OT_fit_to_keys(bpy.types.Operator):
+    """Set the Action's Start/End to its first and last keyframe (character and weapon)"""
+    bl_idname = "fpsrig.fit_to_keys"
+    bl_label = "Fit to keys"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _active_action() is not None
+
+    def execute(self, context):
+        if not fit_range_to_keys(_active_action()):
+            self.report({"WARNING"}, "This Action has no keys")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class FPSRIG_OT_match_end(bpy.types.Operator):
+    """Copy the pose of the first frame to the last frame and key it (selected controls, or all if none are selected), so the clip ends where it started"""
+    bl_idname = "fpsrig.match_end"
+    bl_label = "Match End to Start"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _active_action() is not None
+
+    def execute(self, context):
+        try:
+            n = match_end_to_start()
+        except RuntimeError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Last frame = first frame for {n} controls (keyed)")
+        return {"FINISHED"}
+
+
+class FPSRIG_OT_select_controls(bpy.types.Operator):
+    """Select a group of controls (character and the Action's weapon together in Pose Mode)"""
+    bl_idname = "fpsrig.select_controls"
+    bl_label = "Select Controls"
+    bl_options = {"REGISTER", "UNDO"}
+    group: bpy.props.EnumProperty(name="Group", items=GROUP_ITEMS)
+
+    @classmethod
+    def poll(cls, context):
+        return get_rig() is not None
+
+    def execute(self, context):
+        chosen = select_controls(self.group)
+        self.report({"INFO"}, f"Selected {len(chosen)} controls")
+        return {"FINISHED"}
+
+
+def _tut_steps(context):
+    return TUTORIALS[context.scene.fpsrig_tut]
+
+
+class FPSRIG_OT_tut_nav(bpy.types.Operator):
+    """Go to the previous / next tutorial step"""
+    bl_idname = "fpsrig.tut_nav"
+    bl_label = "Tutorial step"
+    delta: bpy.props.IntProperty(default=1)
+
+    def execute(self, context):
+        sc = context.scene
+        sc.fpsrig_tut_step = max(0, min(len(_tut_steps(context)) - 1, sc.fpsrig_tut_step + self.delta))
+        return {"FINISHED"}
+
+
+class FPSRIG_OT_tut_run(bpy.types.Operator):
+    """Prepare (go to the frame and select the control) or do the current tutorial step for you"""
+    bl_idname = "fpsrig.tut_run"
+    bl_label = "Tutorial action"
+    bl_options = {"REGISTER", "UNDO"}
+    what: bpy.props.EnumProperty(items=[("prepare", "Prepare", ""), ("do", "Show me", "")])
+
+    def execute(self, context):
+        step = _tut_steps(context)[context.scene.fpsrig_tut_step]
+        fn = step.get(self.what)
+        if fn is None:
+            return {"CANCELLED"}
+        try:
+            fn()
+        except Exception as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class FPSRIG_OT_tut_reset(bpy.types.Operator):
+    """Delete the tutorial's practice Action and start again from step 1"""
+    bl_idname = "fpsrig.tut_reset"
+    bl_label = "Start over"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        tut_reset(context.scene.fpsrig_tut)
+        return {"FINISHED"}
+
+
 class FPSRIG_PT_panel(bpy.types.Panel):
     bl_label = "FPS Rig"
     bl_idname = "FPSRIG_PT_panel"
@@ -886,7 +1535,22 @@ class FPSRIG_PT_panel(bpy.types.Panel):
             layout.label(text="No 'Armature' object in this file")
             return
         act = _active_action()
-        layout.label(text=f"Action: {act.name if act else '(none)'}", icon="ACTION")
+        box = layout.box()
+        box.label(text=f"Action: {act.name if act else '(none)'}", icon="ACTION")
+        if act:
+            row = box.row(align=True)
+            row.prop(act, "use_frame_range", text="Manual Range")
+            sub = row.row(align=True)
+            sub.enabled = act.use_frame_range
+            sub.prop(act, "frame_start", text="Start")
+            sub.prop(act, "frame_end", text="End")
+            row = box.row(align=True)
+            row.operator(FPSRIG_OT_fit_to_keys.bl_idname, icon="KEYFRAME")
+            row.operator(FPSRIG_OT_match_end.bl_idname, icon="LOOP_BACK")
+        box.label(text="Select:")
+        row = box.row(align=True)
+        for ident, label, _ in GROUP_ITEMS:
+            row.operator(FPSRIG_OT_select_controls.bl_idname, text=label).group = ident
 
         box = layout.box()
         box.label(text="Weapon", icon="MOD_ARMATURE")
@@ -910,12 +1574,76 @@ class FPSRIG_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Export to Unity", icon="EXPORT")
+        row = box.row(align=True)
+        row.prop(context.scene, "fpsrig_export_character", text="Body", toggle=True)
+        row.prop(context.scene, "fpsrig_export_weapon", text="Weapon", toggle=True)
         box.operator(FPSRIG_OT_export_action.bl_idname, icon="ACTION")
         box.operator(FPSRIG_OT_export_all.bl_idname, icon="DOCUMENTS")
 
 
+class FPSRIG_PT_tutorial(bpy.types.Panel):
+    bl_label = "FPS Rig – Tutorial"
+    bl_idname = "FPSRIG_PT_tutorial"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "FPS Rig"
+
+    def draw(self, context):
+        layout = self.layout
+        sc = context.scene
+        if get_rig() is None:
+            return
+        layout.prop(sc, "fpsrig_tut", text="")
+        steps = TUTORIALS[sc.fpsrig_tut]
+        i = min(sc.fpsrig_tut_step, len(steps) - 1)
+        step = steps[i]
+        try:
+            done = bool(step["check"]())
+        except Exception:
+            done = False
+        box = layout.box()
+        box.label(text=f"{step['title']}   ({i + 1}/{len(steps)})", icon="CHECKMARK" if done else "RADIOBUT_OFF")
+        col = box.column(align=True)
+        for line in step["text"]:
+            col.label(text=line)
+        if done and step["check"] is not _always:
+            box.label(text="Bra! Trykk «Neste».", icon="CHECKMARK")
+        row = box.row(align=True)
+        if "prepare" in step:
+            row.operator(FPSRIG_OT_tut_run.bl_idname, text="Gjør klart", icon="RESTRICT_SELECT_OFF").what = "prepare"
+        if "do" in step:
+            row.operator(FPSRIG_OT_tut_run.bl_idname, text="Vis meg", icon="PLAY").what = "do"
+        row = layout.row(align=True)
+        sub = row.row(align=True)
+        sub.enabled = i > 0
+        sub.operator(FPSRIG_OT_tut_nav.bl_idname, text="Forrige", icon="TRIA_LEFT").delta = -1
+        sub = row.row(align=True)
+        sub.enabled = i < len(steps) - 1
+        sub.operator(FPSRIG_OT_tut_nav.bl_idname, text="Neste", icon="TRIA_RIGHT").delta = 1
+        layout.operator(FPSRIG_OT_tut_reset.bl_idname, text="Start på nytt", icon="FILE_REFRESH")
+
+
 CLASSES = (FPSRIG_OT_switch_follow, FPSRIG_OT_set_weapon, FPSRIG_OT_make_weapon_rig, FPSRIG_OT_set_motion,
-           FPSRIG_OT_export_action, FPSRIG_OT_export_all, FPSRIG_OT_export_weapon_model, FPSRIG_PT_panel)
+           FPSRIG_OT_export_action, FPSRIG_OT_export_all, FPSRIG_OT_export_weapon_model,
+           FPSRIG_OT_fit_to_keys, FPSRIG_OT_match_end, FPSRIG_OT_select_controls,
+           FPSRIG_OT_tut_nav, FPSRIG_OT_tut_run, FPSRIG_OT_tut_reset, FPSRIG_PT_panel, FPSRIG_PT_tutorial)
+
+
+def _tut_changed(self, context):
+    self.fpsrig_tut_step = 0
+
+
+SCENE_PROPS = {
+    "fpsrig_export_character": lambda: bpy.props.BoolProperty(
+        name="Export Body", default=True, description="Export the character clip (Exports/<Action>.fbx)"),
+    "fpsrig_export_weapon": lambda: bpy.props.BoolProperty(
+        name="Export Weapon", default=True,
+        description="Export the weapon clip (Exports/Weapons/<Weapon>/WPN_<Weapon>@<Action>.fbx)"),
+    "fpsrig_tut": lambda: bpy.props.EnumProperty(
+        name="Tutorial", update=_tut_changed,
+        items=[("BODY", "Tutorial 1: Huk og opp (kropp)", ""), ("WEAPON", "Tutorial 2: Pistol, sjekk sliden (våpen)", "")]),
+    "fpsrig_tut_step": lambda: bpy.props.IntProperty(name="Tutorial step", default=0, min=0),
+}
 
 
 def register():
@@ -924,6 +1652,8 @@ def register():
         if old is not None:  # re-running the text: replace the old registration
             bpy.utils.unregister_class(old)
         bpy.utils.register_class(cls)
+    for name, make in SCENE_PROPS.items():
+        setattr(bpy.types.Scene, name, make())
     for hl in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post):
         for h in [h for h in hl if getattr(h, "__name__", "") == "weapon_sync_handler"]:
             hl.remove(h)
@@ -938,6 +1668,9 @@ def unregister():
     for cls in reversed(CLASSES):
         if getattr(bpy.types, cls.__name__, None) is not None:
             bpy.utils.unregister_class(cls)
+    for name in SCENE_PROPS:
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
 
 
 # Registered on file load (text block "Register" option) and when run with Run Script.
