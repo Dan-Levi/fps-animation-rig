@@ -1,6 +1,6 @@
 # FPS Animation Rig – Plan
 
-Status: implemented in `Blender/FPS_Rig.blend` (built by `Blender/scripts/build_fps_rig.py`, Blender 5.0). Blender-side verification done (§7); Unity-side checks pending. How to use it: `Docs/ANIMATOR_GUIDE.md`.
+Status: implemented in `Blender/FPS_Rig.blend` (built by `Blender/scripts/build_fps_rig.py`, Blender 5.0). Blender-side verification done (§7). **Not yet production-ready:** the Unity-side checks in §7 are still open. How to use it: `Docs/ANIMATOR_GUIDE.md`. Review notes: `Docs/RIG_REVIEW.md`.
 
 ## 1. Source inspection (Source/LowPolyMale_Rigged.fbx)
 
@@ -8,13 +8,13 @@ Status: implemented in `Blender/FPS_Rig.blend` (built by `Blender/scripts/build_
 |---|---|
 | File | Binary FBX 7.7, FBX SDK 2020.2 (3ds Max export of a Mixamo character), Y-up, cm units |
 | Objects | `Armature` (65 bones) + `SM_LowPolyMale` (1036 verts, 2040 tris, 1 material, 1 UV map, no shape keys) |
-| Blender import | Armature object gets rot X 90°, scale 0.01 (normal for cm-based FBX). Character is 1.76 m tall, faces −Y, feet on Z=0 |
+| Blender import | Armature object gets rot X 90°, scale 0.01 – this is how Blender represents a Y-up, cm FBX; kept as-is (see §6). Character is 1.76 m tall, faces −Y, feet on Z=0 |
 | Skeleton | Standard Mixamo: `mixamorig:Hips` root → Spine/Spine1/Spine2 → Neck/Head/HeadTop_End, Shoulder/Arm/ForeArm/Hand, 5 fingers × 4 bones, UpLeg/Leg/Foot/ToeBase/Toe_End |
 | Rest pose | T-pose. Elbows pre-bent ~16° (backward), knees ~4.5° (forward) – good IK bend hints |
 | Bone axes | Spine/neck/head: Y up, Z forward. Fingers curl on local **+X** (both hands) |
 | Weights | All 1036 verts weighted, all normalized. 52 weighted bones; the 13 `*_End`/`*4` leaf bones are unweighted (normal). 53 verts have >4 influences (max 7) – Unity's default "4 bones" skin quality slightly simplifies these; not an animation issue |
 | Extra data | A 2-frame `mixamo.com` take (near-bind pose). Not used; removed from the rig file |
-| Round trip | Blender FBX export (settings in §6) re-imports with all 65 bones, identical hierarchy, max deviation 0.000008 m |
+| Round trip | Blender FBX export (settings in §6): cm units, identity `Armature` node, Hips local translation identical to the source. Rest rotations: untouched skeleton re-exports within 0.001° of the source; the rigged file (constraints active) within 0.05° – float32 precision level, sub-millimetre |
 
 Unity project: not available to this session, so the neutral FPS camera could not be measured. The camera is placed at the eyes (§4) and must be checked against the Unity camera before final sign-off.
 
@@ -36,20 +36,21 @@ Colours: center = yellow, left = blue, right = red, fingers = green, camera = pu
 |---|---|---|
 | `CTRL_Root` | everything | On the ground. Keep at origin for in-place clips |
 | `CTRL_Torso` | body (COG) | Move down to crouch – feet stay planted |
-| `CTRL_Hips` | `Hips` | Pelvis only; upper body stays put |
+| `CTRL_Hips` | `Hips` | Rotation only (pelvis tilt/swing). Upper body keeps its orientation but its base moves slightly with the pelvis. Move the body with `CTRL_Torso` |
 | `CTRL_Spine`, `CTRL_Chest`, `CTRL_UpperChest` | `Spine`, `Spine1`, `Spine2` | FK rotation |
 | `CTRL_Neck`, `CTRL_Head` | `Neck`, `Head` | FK rotation |
 | `CTRL_Shoulder.L/R` | `Shoulder` | Clavicle shrug |
-| `CTRL_Hand_IK.L/R` | arm chain + `Hand` | Slider **Follow Weapon** (0 = world/root, 1 = moves with weapon) |
+| `CTRL_Hand_IK.R` | right arm + `Hand` | **Follow Weapon** 1 = carried by `CTRL_Weapon` (default), 0 = free |
+| `CTRL_Hand_IK.L` | left arm + `Hand` | **Follow Weapon** 1 = follows the weapon as held in the right hand (`WPN_Socket`) (default), 0 = free |
 | `CTRL_Elbow_Pole.L/R` | elbow direction | Follows upper chest |
-| `CTRL_Foot_IK.L/R` | leg chain + `Foot` | Flat, world-aligned. Planted feet |
+| `CTRL_Foot_IK.L/R` | leg chain + `Foot` | Flat, world-aligned, pivot at the ankle. Planted feet. No heel/toe roll (§8) |
 | `CTRL_Toe.L/R` | `ToeBase` | Toe bend |
 | `CTRL_Knee_Pole.L/R` | knee direction | Follows its foot |
-| `CTRL_Grip.L/R` | 4 fingers | Rotate X = whole-hand fist |
-| `CTRL_Index/Middle/Ring/Pinky.L/R` | that finger | Rotate X = curl all 3 joints, Z = spread |
-| `CTRL_Thumb.L/R` | thumb | Rotate X = curl, Z = spread/opposition |
+| `CTRL_Grip.L/R` | 4 fingers | Rotate X = whole-hand fist, Z = fan spread (+Z opens, same on both hands) |
+| `CTRL_Index/Middle/Ring/Pinky.L/R` | that finger | Rotate X = curl all 3 joints equally, Z = side-to-side at the knuckle (direction is mirrored between hands – rotate visually) |
+| `CTRL_Thumb.L/R` | thumb | Rotate X = curl toward/across the palm (metacarpal gets half), Z = spread toward/away from the index finger |
 | `CTRL_<Finger>1-3.L/R` | single joints | Fine adjustment, layered on top of curl |
-| `CTRL_Weapon` | weapon reference | Slider **Follow Chest** (1 = weapon moves with upper body). Parent weapon models here |
+| `CTRL_Weapon` | right hand (and through it the weapon) | Grab handle for the weapon. **Follow Chest** 1 = moves with the upper body. Weapon models parent to `WPN_Attach`, not here (§5) |
 | `CTRL_Camera` | `AnimCamera` | Slider **Follow Head** (default 0) |
 
 Space-switch sliders use an Armature constraint whose two weights are set by plain (non-Python) drivers. They are meant to be set once per Action; animating them is possible but can pop.
@@ -58,43 +59,70 @@ Bone collections: **Main**, **Fingers**, **Finger Detail**, plus hidden **Deform
 
 ## 4. Camera
 
-- Exported bone `AnimCamera`, top-level (no parent), at the eyes: (0, −0.070, 1.645) m.
-- Rest orientation equals `mixamorig:Head` (Y up, Z forward), so in Unity it has the same +Z forward / +Y up convention as the Mixamo bones.
-- Not parented to the head: its local transform is purely the authored camera offset. Breathing/head motion never moves the gameplay camera unless the animator chooses **Follow Head**.
-- Unity model: `gameplay camera + (AnimCamera pose − AnimCamera rest)`. At rest the offset is zero.
-- `FPS_View` Blender camera rides on `AnimCamera` (60° vertical FOV, Unity's default, 16:9) for first-person preview. `External_View` gives a full-body view.
-- Unity hookup (to verify in Unity): the character model needs a transform with the same path as in the clips, which is easiest by importing the character once from this rig file's export. The clip import must include `AnimCamera` in its mask (Humanoid keeps non-humanoid transforms only when masked in).
+Uses: accurate FPS preview in Blender, optional animation-driven camera offsets, and cutscenes where the animation temporarily owns the camera.
+
+- Exported bone `AnimCamera` at the eyes: (0, −0.070, 1.645) m. **Top-level** (sibling of `Hips` under the `Armature` node) – i.e. it lives in **character-root space**, the same space the Hips curve lives in.
+- In the exported FBX/Unity it has **identity rest rotation** relative to the character root (verified: FBX Lcl Rotation 0) – +Z = character forward, +Y = up. Rest local position (0, 1.645, 0.07) m.
+- Why top-level and not a child of `Head`/`Hips`: a child would inherit breathing, head bob and retargeting differences, and the "offset" would have to be reconstructed by subtracting the head pose. Top-level means the curve already *is* the authored camera, with zero inherited motion. Head-following is opt-in (**Follow Head**) and gets baked into the curve only when chosen.
+- Controls: `CTRL_Camera` (animate) → `AnimCamera` (exported). `MCH_Space_Camera` blends between `CTRL_Root` (default) and the deform `Head` (**Follow Head** = 1, e.g. knockdown/get-up cutscenes).
+- `FPS_View` (Blender camera, 60° vertical FOV = Unity default, 16:9) rides on `AnimCamera`, so it shows *neutral gameplay camera + authored offset*. It does not show player look input or controller-driven crouch height.
+
+Intended Unity use (to implement and verify in Unity – not part of this repo):
+
+- `offset = Inverse(restLocal) * currentLocal`, where `restLocal` = position (0, 1.645, 0.07), identity rotation.
+- **Gameplay** (player owns the camera): `camera = playerCamera * offset`. With `CTRL_Camera` untouched the offset is identity, so gameplay is unaffected.
+- **Cutscene** (animation owns the camera): `camera = characterRoot * currentLocal`, blended in/out with a weight. Player look is ignored while the weight is 1.
+- Root-motion caveat: like Hips, `AnimCamera` contains any travel of the body in Blender (moving `CTRL_Root`/`CTRL_Torso` for locomotion). Unity applies root motion to the GameObject but `AnimCamera` is a plain transform, so for clips that use **Apply Root Motion** the camera would be displaced twice. For camera-owned clips either keep the motion in-place (Bake Into Pose) or have the camera script subtract the root motion delta.
+- Hookup: Humanoid clips only carry non-humanoid transforms that exist on the character and are enabled in the clip's **Mask → Transform**. The source character has no `AnimCamera`, so add a child `Armature/AnimCamera` transform (or import the character from a rig export) at the rest values above.
 
 ## 5. Weapons and tools
 
-- `CTRL_Weapon` is a reference/socket. It holds a placeholder (`REF_Weapon`) that can be replaced by any weapon or tool model parented to the control.
-- Default rest: at the right hand grip, pointing forward.
-- Both hands follow the weapon by default (good for rifles, reloads, recoil, two-handed melee). Set **Follow Weapon** to 0 for unarmed actions or interactions.
-- The weapon is not exported. In Unity, weapons attach to the right-hand bone as usual.
+Assumption (to confirm against the Unity project): at runtime the weapon is attached to the **right-hand bone** through a socket transform.
+
+- `WPN_Socket` (hidden bone, not exported) is rigidly parented to `mixamorig:RightHand` – the Blender equivalent of that runtime socket. The visible empty `WPN_Attach` sits on it; weapon models (and the `REF_Weapon` placeholder) parent to `WPN_Attach`, so the weapon you see in Blender is exactly where a right-hand socket puts it in Unity.
+- `CTRL_Weapon` is the animator's grab handle: it carries the right hand (**Follow Weapon** on the right hand), and the right hand carries the weapon. The left hand follows `WPN_Socket` – the weapon as actually held – so foregrip placement stays consistent even if the right hand is offset or cannot reach.
+- Rest grip offset = a pistol-grip hand pose. Socket axes match Unity conventions: +Z = barrel, +Y = weapon up, pivot = grip point. A weapon prefab authored with +Z forward and its pivot at the pistol grip needs no extra offset.
+- Socket transform for Unity (child of `mixamorig:RightHand`), derived from the rig and cross-checked against the FBX node; the X-mirror conversion to Unity is standard but should be verified once in Unity by eye:
+  - localPosition (m): (0.0000, 0.0660, 0.0250)
+  - localRotation (x, y, z, w): (−0.48823, 0.62694, 0.36381, 0.48602) ≈ Euler (291.45, 135.96, 315.00)
+- Not supported in v1: the weapon leaving the right hand (hand-overs, left-hand-only weapons). Unity runtime left-hand IK, if used, will override the authored left hand.
+- Unity Humanoid retargeting (muscle limits, arm stretch) can move hands by a few millimetres–centimetres; small foregrip gaps in Unity are expected and usually fixed with runtime left-hand IK.
 
 ## 6. Export to Unity
 
 Settings (also in the script `Blender/scripts/export_action_to_unity.py`, embedded in the .blend as a text block):
 
 - Selection: the armature only. Object types: Armature
-- Scale: *FBX Units Scale*, Forward −Z, Up Y, Apply Transform off
+- Scale: **All Local**, Forward −Z, Up Y, Apply Transform off. This writes cm units and an unscaled `Armature` node, matching the source FBX. (*FBX Units Scale* would write metres with a 0.01-scaled `Armature` node – correct world positions but a scaled parent transform in Unity, a common source of Humanoid/root-motion scale problems.)
 - Armature: **Only Deform Bones** on, **Add Leaf Bones** off, primary Y / secondary X
 - Animation: Bake on, NLA strips off, All Actions off, Force Start/End keying on, Simplify 0, 30 fps
 - Output: `Exports/<ActionName>.fbx`
 
-Result: the 65 Mixamo bones + `AnimCamera`. No control bones, widgets, cameras or weapon.
+Result: an `Armature` node (identity) with the 65 Mixamo bones + `AnimCamera`. No control bones, socket, widgets, cameras or weapon. The take is named after the Action. The only structural difference from the source FBX is the extra identity `Armature` node (Humanoid maps bones by name, so this is expected to be harmless – verify in Unity).
 
 Unity: Rig = Humanoid, Avatar = *Copy From Other Avatar* (the existing Mixamo avatar).
 
-## 7. Verification (done in Blender here)
+## 7. Verification
 
-1. With all controls at rest, every deform bone matches its original rest pose.
-2. Crouch test: lowering `CTRL_Torso` keeps feet planted, knees bend forward.
-3. Finger curl closes toward the palm on both hands.
-4. Export a test Action, re-import it, and compare deform-bone world transforms per frame with the rig.
+Done in Blender (scripted checks):
 
-Still requires Unity: Humanoid import of an exported clip on the existing avatar, and checking the camera position.
+1. With all controls at rest, every deform bone matches its original rest pose within 0.05° / 0.004 cm (measured in float64 from the exported FBX; Blender's float32 pose matrices can't resolve finer).
+2. Crouch: lowering `CTRL_Torso` 30 cm keeps the feet within 0.1 mm, knees bend forward.
+3. Fingers: curl is exact and additive (master + detail + grip), fan spread opens on both hands, thumb curl distributes 0.5/1/1.
+4. Weapon: in the example pose `WPN_Socket` and `CTRL_Weapon` coincide; hands follow; `Follow Weapon` = 0 releases a hand.
+5. Camera: `Follow Head` = 0 → head motion does not move `AnimCamera`; = 1 → it does.
+6. Export: an animated test Action re-imports with all deform bones matching the rig to 0.02 mm (rotation differences below the float32 resolution of ~0.04°), no control bones exported; FBX structure matches the source conventions (§6).
+
+Still open – needs the Unity project:
+
+- Humanoid import of `Exports/Example_FPS_Ready.fbx` with *Copy From Other Avatar* on the existing avatar.
+- Compare `AnimCamera` rest position with the current neutral FPS camera.
+- Confirm the weapon attachment convention (§5) and socket values.
+- Implement the `AnimCamera` offset/cutscene logic (§4).
 
 ## 8. Out of scope for this version
 
-Foot roll pivots, IK/FK arm switching, stretchy limbs, automatic weapon-hand snapping, Unity scripts.
+- Foot: no heel/toe roll pivots or roll slider – the foot rotates around the ankle, so heel-lifts and tip-toe need foot rotation plus a counter-move, or `CTRL_Toe`. No knee-snap softening: near full leg extension the IK can pop. No automatic floor contact.
+- IK/FK arm switching, stretchy limbs, space switching without pops (sliders are meant to be set once per Action).
+- Weapon hand-overs / left-hand-held weapons.
+- Unity scripts (camera offset, socket setup).

@@ -23,6 +23,13 @@ P = "mixamorig:"
 SIDES = {"L": "Left", "R": "Right"}
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
 EYE_WORLD = Vector((0.0, -0.070, 1.645))  # metres: between the eyes, at the eye-surface plane
+# Right-hand pistol grip, in weapon space (weapon barrel = -Y, up = +Z, pivot at the grip):
+# hand bone Y (wrist -> knuckles) and palm normal (+Z), and wrist offset (along Y, along Z) in metres.
+GRIP_HAND_Y = (0.25, -0.9, 0.25)
+GRIP_HAND_Z = (1.0, 0.2, 0.0)
+GRIP_PALM = (0.066, 0.025)
+# Grip Z fan spread per finger: (amount, moves toward thumb side)
+FAN = {"Index": (1.0, True), "Middle": (0.3, True), "Ring": (0.5, False), "Pinky": (1.0, False)}
 
 COL_CENTER, COL_LEFT, COL_RIGHT = "THEME09", "THEME04", "THEME01"
 COL_FINGER, COL_CAMERA, COL_WEAPON = "THEME03", "THEME06", "THEME02"
@@ -37,8 +44,6 @@ scene.frame_start, scene.frame_end = 1, 60
 bpy.ops.import_scene.fbx(filepath=SRC)
 
 arm = bpy.data.objects["Armature"]
-mesh = bpy.data.objects["SM_LowPolyMale"]
-arm.name = "Armature"  # FBX root node name; keep stable
 take = arm.animation_data.action if arm.animation_data else None
 if take:
     arm.animation_data.action = None
@@ -92,10 +97,6 @@ def merge(*parts):
         vs += pv
         es += [(a + o, b + o) for a, b in pe]
     return vs, es
-
-
-def scaled(part, s):
-    return [tuple(c * s for c in v) for v in part[0]], part[1]
 
 
 W = {}
@@ -176,11 +177,34 @@ dup("CTRL_UpperChest", P + "Spine2", "CTRL_Chest")
 dup("CTRL_Neck", P + "Neck", "CTRL_UpperChest")
 dup("CTRL_Head", P + "Head", "CTRL_Neck")
 
-# Weapon socket at the right palm, pointing forward, Z up
+# Weapon socket: the runtime attachment point, rigidly on the right hand (as a Unity hand
+# socket would be). The grip offset is defined by a pistol-grip hand pose relative to a
+# weapon pointing forward with its pivot at the grip.
+def frame(y, z):
+    Y = Vector(y).normalized()
+    Z = (Vector(z) - Vector(z).project(Y)).normalized()
+    return Matrix((Y.cross(Z), Y, Z)).transposed()
+
+
+grip_hand_rot = frame(GRIP_HAND_Y, GRIP_HAND_Z)
+grip_hand = Matrix.Translation(-(grip_hand_rot.col[1] * GRIP_PALM[0] + grip_hand_rot.col[2] * GRIP_PALM[1])) \
+    @ grip_hand_rot.to_4x4()                                  # hand in weapon-grip space
+socket_axes = frame(UP, FWD).to_4x4()                         # socket: Y = weapon up, Z = barrel
+socket_in_hand = grip_hand.inverted() @ socket_axes
 rh = eb[P + "RightHand"]
-grip_w = MW @ (rh.head + rh.y_axis * rh.length * 0.55 + rh.z_axis * 2.5)
-new("MCH_Space_Weapon", grip_w, FWD, UP, 30)
-new("CTRL_Weapon", grip_w, FWD, UP, 30, "MCH_Space_Weapon")
+rh_world = MW @ rh.matrix
+rh_world = Matrix.LocRotScale(rh_world.translation, rh_world.to_quaternion(), Vector((1, 1, 1)))
+socket_world = rh_world @ socket_in_hand
+sock = eb.new("WPN_Socket")
+sock.length = 8.0
+sock.matrix = Matrix.LocRotScale(INV @ socket_world.translation, (INV3 @ socket_world.to_3x3()).normalized().to_quaternion(),
+                                 Vector((1, 1, 1)))
+sock.parent = rh
+sock.use_deform = False
+grip_w = socket_world.translation
+barrel_w, up_w = socket_world.to_3x3().col[2], socket_world.to_3x3().col[1]
+new("MCH_Space_Weapon", grip_w, barrel_w, up_w, 30)
+new("CTRL_Weapon", grip_w, barrel_w, up_w, 30, "MCH_Space_Weapon")
 
 # Camera control
 dup("MCH_Space_Camera", "AnimCamera")
@@ -253,12 +277,12 @@ def ctrl(name, shape, col, collection, rot_mode="QUATERNION", lock_loc=False, lo
 for n in DEFORM + ["AnimCamera"]:
     C_DEF.assign(arm.data.bones[n])
 for b in arm.data.bones:
-    if b.name.startswith("MCH_"):
+    if b.name.startswith("MCH_") or b.name == "WPN_Socket":
         C_MCH.assign(b)
 
 ctrl("CTRL_Root", "root", COL_CENTER, C_MAIN)
 ctrl("CTRL_Torso", "torso", COL_CENTER, C_MAIN, "XYZ")
-ctrl("CTRL_Hips", "hips", COL_CENTER, C_MAIN, "XYZ")
+ctrl("CTRL_Hips", "hips", COL_CENTER, C_MAIN, "XYZ", lock_loc=True)
 for n in ("CTRL_Spine", "CTRL_Chest", "CTRL_UpperChest"):
     ctrl(n, "spine", COL_CENTER, C_MAIN, "XYZ", lock_loc=True)
 ctrl("CTRL_Neck", "neck", COL_CENTER, C_MAIN, "XYZ", lock_loc=True)
@@ -281,7 +305,7 @@ for s in SIDES:
              lock_rot=(False, True, False))
         for i in (1, 2, 3):
             ctrl(f"CTRL_{f}{i}.{s}", "finger", col, C_DET, "XYZ", lock_loc=True, wire=1.5)
-    ctrl(f"CTRL_Grip.{s}", "grip", COL_FINGER, C_FING, "XYZ", lock_loc=True, lock_rot=(False, True, True))
+    ctrl(f"CTRL_Grip.{s}", "grip", COL_FINGER, C_FING, "XYZ", lock_loc=True, lock_rot=(False, True, False))
 
 arm.data.display_type = "OCTAHEDRAL"
 arm.show_in_front = True
@@ -350,7 +374,10 @@ for s, side in SIDES.items():
     copy_rot(P + f"{side}Shoulder", f"CTRL_Shoulder.{s}")
 
     add_prop(f"CTRL_Hand_IK.{s}", "Follow Weapon", 1.0, "0 = hand stays in world/root space, 1 = hand moves with the weapon")
-    space_switch(f"MCH_Space_Hand.{s}", ["CTRL_Root", "CTRL_Weapon"], f"CTRL_Hand_IK.{s}", "Follow Weapon")
+    # Right hand carries the weapon (driven by CTRL_Weapon); the left hand follows the weapon as it
+    # actually sits in the right hand, so both hands agree with a runtime right-hand socket.
+    space_switch(f"MCH_Space_Hand.{s}", ["CTRL_Root", "CTRL_Weapon" if s == "R" else "WPN_Socket"],
+                 f"CTRL_Hand_IK.{s}", "Follow Weapon")
     c = pbs[P + f"{side}ForeArm"].constraints.new("IK")
     c.target, c.subtarget = arm, f"CTRL_Hand_IK.{s}"
     c.pole_target, c.pole_subtarget = arm, f"CTRL_Elbow_Pole.{s}"
@@ -369,34 +396,39 @@ for s, side in SIDES.items():
     for f in FINGERS:
         for i in (1, 2, 3):
             det = f"CTRL_{f}{i}.{s}"
-            # curl (X) on every joint, spread (Z) on the first joint only
-            copy_rot(det, f"CTRL_{f}.{s}", "LOCAL", "ADD", (True, False, i == 1), "Curl")
+            # curl (X) on every joint, side-to-side (Z) on the first joint only
+            c = copy_rot(det, f"CTRL_{f}.{s}", "LOCAL", "ADD", (True, False, i == 1), "Curl")
+            if f == "Thumb" and i == 1:
+                c.influence = 0.5  # thumb metacarpal moves less than the thumb joints
             if f != "Thumb":
                 copy_rot(det, f"CTRL_Grip.{s}", "LOCAL", "ADD", (True, False, False), "Grip")
+                if i == 1:
+                    # Grip Z = fan spread: +Z opens the hand on both sides
+                    amount, toward_thumb = FAN[f]
+                    c = copy_rot(det, f"CTRL_Grip.{s}", "LOCAL", "ADD", (False, False, True), "Grip Spread")
+                    c.influence = amount
+                    # local +Z moves fingers toward the thumb on the left hand, toward the pinky on the right
+                    c.invert_z = toward_thumb != (s == "L")
             copy_rot(P + f"{side}Hand{f}{i}", det, "LOCAL")
 
 
 # ---------------------------------------------------------------- solve pole angles so rest stays rest
-def rot_err(bone):
+def rot_err(bones):
     bpy.context.view_layer.update()
-    a = pbs[bone].matrix.to_quaternion()
-    b = arm.data.bones[bone].matrix_local.to_quaternion()
-    return a.rotation_difference(b).angle
+    return sum(pbs[b].matrix.to_quaternion().rotation_difference(arm.data.bones[b].matrix_local.to_quaternion()).angle
+               for b in bones)
 
 
 for key, (c, bone) in ik.items():
-    best = min(range(-180, 181), key=lambda d: (setattr(c, "pole_angle", math.radians(d)), rot_err(bone))[1])
-    lo, hi = best - 1.0, best + 1.0
-    for _ in range(40):  # golden-section refine
-        m1, m2 = lo + (hi - lo) * 0.382, lo + (hi - lo) * 0.618
-        c.pole_angle = math.radians(m1); e1 = rot_err(bone)
-        c.pole_angle = math.radians(m2); e2 = rot_err(bone)
-        if e1 < e2:
-            hi = m2
-        else:
-            lo = m1
-    c.pole_angle = math.radians((lo + hi) / 2)
-    print(f"pole angle {key}: {math.degrees(c.pole_angle):.2f} deg, residual {math.degrees(rot_err(bone)):.4f} deg")
+    chain = [bone, pbs[bone].parent.name]
+    best = 0.0
+    for span, step in ((180.0, 1.0), (1.0, 0.05), (0.05, 0.002)):  # nested grid search
+        n = int(round(span / step))
+        cands = [best + i * step for i in range(-n, n + 1)]
+        best = min(cands, key=lambda d: (setattr(c, "pole_angle", math.radians(d)), rot_err(chain))[1])
+    c.pole_angle = math.radians(best)
+    bone = chain
+    print(f"pole angle {key}: {math.degrees(c.pole_angle):.3f} deg, residual {math.degrees(rot_err(bone)):.4f} deg")
 
 
 # ---------------------------------------------------------------- preview cameras / weapon reference
@@ -426,15 +458,14 @@ ed.lens = 35
 scene.camera = fps_cam
 scene.render.resolution_x, scene.render.resolution_y = 1920, 1080
 
-# Placeholder weapon (rifle-like blocks) in world space at rest, then parented to CTRL_Weapon
-g = MW @ arm.data.bones["CTRL_Weapon"].head_local
-parts = [  # (center offset from grip (x, y, z) metres, size)
-    ((0, -0.10, 0.06), (0.04, 0.30, 0.07)),   # receiver
-    ((0, -0.42, 0.075), (0.02, 0.36, 0.02)),  # barrel
-    ((0, 0.17, 0.05), (0.035, 0.24, 0.08)),   # stock
-    ((0, 0.0, -0.01), (0.03, 0.04, 0.10)),    # pistol grip
-    ((0, -0.08, 0.0), (0.025, 0.04, 0.09)),   # magazine
-    ((0, -0.26, 0.035), (0.035, 0.14, 0.045)),  # handguard
+# Placeholder weapon (rifle-like blocks), modelled in socket space: X lateral, Y up, Z barrel, pivot at the grip
+parts = [  # (center (x, up, forward) metres, size (x, up, forward))
+    ((0, 0.06, 0.10), (0.04, 0.07, 0.30)),    # receiver
+    ((0, 0.075, 0.42), (0.02, 0.02, 0.36)),   # barrel
+    ((0, 0.05, -0.17), (0.035, 0.08, 0.24)),  # stock
+    ((0, -0.01, 0.0), (0.03, 0.10, 0.04)),    # pistol grip
+    ((0, 0.0, 0.08), (0.025, 0.09, 0.04)),    # magazine
+    ((0, 0.035, 0.26), (0.035, 0.045, 0.14)),  # handguard
 ]
 verts, faces = [], []
 for (cx, cy, cz), (sx, sy, sz) in parts:
@@ -442,7 +473,7 @@ for (cx, cy, cz), (sx, sy, sz) in parts:
     for dx in (-0.5, 0.5):
         for dy in (-0.5, 0.5):
             for dz in (-0.5, 0.5):
-                verts.append((g.x + cx + dx * sx, g.y + cy + dy * sy, g.z + cz + dz * sz))
+                verts.append((cx + dx * sx, cy + dy * sy, cz + dz * sz))
     faces += [(o + a, o + b, o + c, o + d) for a, b, c, d in
               ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))]
 wme = bpy.data.meshes.new("REF_Weapon")
@@ -450,7 +481,13 @@ wme.from_pydata(verts, [], faces)
 weapon = bpy.data.objects.new("REF_Weapon", wme)
 scene.collection.objects.link(weapon)
 weapon.color = (0.9, 0.45, 0.1, 1.0)
-parent_to_bone(weapon, "CTRL_Weapon", Matrix())
+# Visible attach point for weapon models: origin = grip, Z arrow = barrel, Y arrow = up
+sm = MW @ arm.data.bones["WPN_Socket"].matrix_local
+attach = bpy.data.objects.new("WPN_Attach", None)
+attach.empty_display_type, attach.empty_display_size = "ARROWS", 0.08
+scene.collection.objects.link(attach)
+parent_to_bone(attach, "WPN_Socket", Matrix.LocRotScale(sm.translation, sm.to_quaternion(), Vector((1, 1, 1))))
+weapon.parent = attach
 weapon.hide_select = True
 
 # ---------------------------------------------------------------- final rest check
@@ -459,7 +496,8 @@ worst = max((pbs[n].matrix.to_quaternion().rotation_difference(arm.data.bones[n]
              n) for n in DEFORM + ["AnimCamera"])
 worst_loc = max(((pbs[n].matrix.translation - arm.data.bones[n].matrix_local.translation).length, n)
                 for n in DEFORM + ["AnimCamera"])
-print(f"rest check: max rotation error {math.degrees(worst[0]):.4f} deg ({worst[1]}), "
+# Blender pose matrices are float32: angles below ~0.04 deg read as 0 here.
+print(f"rest check (float32, ~0.04 deg floor): max rotation error {math.degrees(worst[0]):.4f} deg ({worst[1]}), "
       f"max location error {worst_loc[0]:.4f} cm ({worst_loc[1]})")
 
 # ---------------------------------------------------------------- example Action: FPS ready pose
@@ -482,10 +520,7 @@ pbs["CTRL_Chest"].rotation_euler = (0, math.radians(-8), 0)
 pbs["CTRL_UpperChest"].rotation_euler = (0, math.radians(-10), 0)
 pbs["CTRL_Shoulder.L"].rotation_euler = (0, 0, math.radians(12))
 grip = Vector((-0.11, -0.30, 1.47))
-set_world("CTRL_Weapon", grip)
-yr = Vector((0.25, -0.9, 0.25)).normalized()
-zr = Vector((1, 0.2, 0)); zr = (zr - zr.project(yr)).normalized()
-set_world("CTRL_Hand_IK.R", grip - yr * 0.066 - zr * 0.025, yr, zr)
+set_world("CTRL_Weapon", grip, FWD, UP)  # right hand holds the weapon via the socket offset
 yl = Vector((-0.8, -0.5, 0.15)).normalized()
 zl = Vector((0, 0, 1)); zl = (zl - zl.project(yl)).normalized()
 set_world("CTRL_Hand_IK.L", grip + Vector((0, -0.19, 0)) - yl * 0.06 - zl * 0.035, yl, zl)
@@ -493,7 +528,7 @@ set_world("CTRL_Elbow_Pole.R", (-0.55, 0.0, 0.95))
 set_world("CTRL_Elbow_Pole.L", (0.45, -0.25, 0.85))
 pbs["CTRL_Grip.R"].rotation_euler = (math.radians(65), 0, 0)
 pbs["CTRL_Index.R"].rotation_euler = (math.radians(-45), 0, 0)
-pbs["CTRL_Thumb.R"].rotation_euler = (math.radians(25), 0, 0)
+pbs["CTRL_Thumb.R"].rotation_euler = (math.radians(45), 0, 0)
 pbs["CTRL_Grip.L"].rotation_euler = (math.radians(45), 0, 0)
 pbs["CTRL_Thumb.L"].rotation_euler = (math.radians(15), 0, 0)
 bpy.context.view_layer.update()

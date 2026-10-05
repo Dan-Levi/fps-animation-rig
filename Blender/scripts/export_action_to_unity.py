@@ -42,7 +42,8 @@ def export_active_action(filepath=None):
             filepath=filepath,
             use_selection=True,
             object_types={"ARMATURE"},
-            apply_scale_options="FBX_SCALE_UNITS",
+            # "All Local": cm file units and an unscaled Armature node, matching the source FBX
+            apply_scale_options="FBX_SCALE_NONE",
             axis_forward="-Z",
             axis_up="Y",
             bake_space_transform=False,
