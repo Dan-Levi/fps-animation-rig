@@ -10,6 +10,7 @@ See Docs/RIG_PLAN.md.
 """
 import math
 import os
+import sys
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
@@ -17,7 +18,9 @@ from mathutils import Matrix, Quaternion, Vector
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SRC = os.path.join(REPO, "Source", "LowPolyMale_Rigged.fbx")
 OUT = os.path.join(REPO, "Blender", "FPS_Rig.blend")
-EXPORT_SCRIPT = os.path.join(REPO, "Blender", "scripts", "export_action_to_unity.py")
+TOOLS_SCRIPT = os.path.join(REPO, "Blender", "scripts", "fps_rig_tools.py")
+sys.path.insert(0, os.path.dirname(TOOLS_SCRIPT))
+import fps_rig_tools as tools  # noqa: E402  (shared keying / switch / export logic)
 
 P = "mixamorig:"
 SIDES = {"L": "Left", "R": "Right"}
@@ -50,6 +53,13 @@ if take:
     bpy.data.actions.remove(take)
 for pb in arm.pose.bones:
     pb.matrix_basis = Matrix()
+
+# Apply the FBX's 0.01 scale (armature + mesh) so the rig works in metres: pose values in the
+# sidebar are real metres. The X 90 deg rotation stays (it cancels the FBX axis conversion).
+for o in bpy.data.objects:
+    o.select_set(True)
+bpy.context.view_layer.objects.active = arm
+bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
 MW = arm.matrix_world.copy()
 INV = MW.inverted()
@@ -99,6 +109,7 @@ def merge(*parts):
     return vs, es
 
 
+WGT_UNIT = 0.01  # widgets below are modelled in centimetres
 W = {}
 W["root"] = widget("Root", *merge(ring(45), ([(-7, 0, 45), (0, 0, 60), (7, 0, 45)], [(0, 1), (1, 2)])))
 W["torso"] = widget("Torso", *box(-28, 28, 0, 0, -20, 20))
@@ -163,7 +174,7 @@ UP, FWD = (0, 0, 1), (0, -1, 0)
 cam = eb.new("AnimCamera")
 m = eb[P + "Head"].matrix.copy()
 m.translation = L(EYE_WORLD)
-cam.length = 10.0
+cam.length = 0.10
 cam.matrix = m
 cam.use_deform = True  # no vertex group -> no skinning; kept by "Only Deform Bones"
 
@@ -196,7 +207,7 @@ rh_world = MW @ rh.matrix
 rh_world = Matrix.LocRotScale(rh_world.translation, rh_world.to_quaternion(), Vector((1, 1, 1)))
 socket_world = rh_world @ socket_in_hand
 sock = eb.new("WPN_Socket")
-sock.length = 8.0
+sock.length = 0.08
 sock.matrix = Matrix.LocRotScale(INV @ socket_world.translation, (INV3 @ socket_world.to_3x3()).normalized().to_quaternion(),
                                  Vector((1, 1, 1)))
 sock.parent = rh
@@ -262,7 +273,7 @@ def ctrl(name, shape, col, collection, rot_mode="QUATERNION", lock_loc=False, lo
     collection.assign(b)
     pb.custom_shape = W[shape]
     pb.use_custom_shape_bone_size = False
-    pb.custom_shape_scale_xyz = (scale, scale, scale)
+    pb.custom_shape_scale_xyz = (scale * WGT_UNIT,) * 3
     pb.custom_shape_wire_width = wire
     pb.color.palette = col
     b.color.palette = col
@@ -442,6 +453,7 @@ cd = bpy.data.cameras.new("FPS_View")
 cd.sensor_fit, cd.lens_unit = "VERTICAL", "FOV"
 cd.angle_y = math.radians(60.0)
 cd.clip_start, cd.clip_end = 0.01, 500.0
+cd.show_composition_center = True  # centre cross = where the gameplay crosshair is
 fps_cam = bpy.data.objects.new("FPS_View", cd)
 scene.collection.objects.link(fps_cam)
 bm = MW @ arm.data.bones["AnimCamera"].matrix_local
@@ -458,37 +470,69 @@ ed.lens = 35
 scene.camera = fps_cam
 scene.render.resolution_x, scene.render.resolution_y = 1920, 1080
 
-# Placeholder weapon (rifle-like blocks), modelled in socket space: X lateral, Y up, Z barrel, pivot at the grip
-parts = [  # (center (x, up, forward) metres, size (x, up, forward))
-    ((0, 0.06, 0.10), (0.04, 0.07, 0.30)),    # receiver
-    ((0, 0.075, 0.42), (0.02, 0.02, 0.36)),   # barrel
-    ((0, 0.05, -0.17), (0.035, 0.08, 0.24)),  # stock
-    ((0, -0.01, 0.0), (0.03, 0.10, 0.04)),    # pistol grip
-    ((0, 0.0, 0.08), (0.025, 0.09, 0.04)),    # magazine
-    ((0, 0.035, 0.26), (0.035, 0.045, 0.14)),  # handguard
-]
-verts, faces = [], []
-for (cx, cy, cz), (sx, sy, sz) in parts:
-    o = len(verts)
-    for dx in (-0.5, 0.5):
-        for dy in (-0.5, 0.5):
-            for dz in (-0.5, 0.5):
-                verts.append((cx + dx * sx, cy + dy * sy, cz + dz * sz))
-    faces += [(o + a, o + b, o + c, o + d) for a, b, c, d in
-              ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))]
-wme = bpy.data.meshes.new("REF_Weapon")
-wme.from_pydata(verts, [], faces)
-weapon = bpy.data.objects.new("REF_Weapon", wme)
-scene.collection.objects.link(weapon)
-weapon.color = (0.9, 0.45, 0.1, 1.0)
-# Visible attach point for weapon models: origin = grip, Z arrow = barrel, Y arrow = up
+# ---------------------------------------------------------------- weapon references
+# Visible attach point for weapon models: origin = grip, Z arrow = barrel/business end, Y arrow = up.
 sm = MW @ arm.data.bones["WPN_Socket"].matrix_local
 attach = bpy.data.objects.new("WPN_Attach", None)
 attach.empty_display_type, attach.empty_display_size = "ARROWS", 0.08
 scene.collection.objects.link(attach)
 parent_to_bone(attach, "WPN_Socket", Matrix.LocRotScale(sm.translation, sm.to_quaternion(), Vector((1, 1, 1))))
-weapon.parent = attach
-weapon.hide_select = True
+
+ref_col = bpy.data.collections.new("Weapon References")
+scene.collection.children.link(ref_col)
+
+
+def blocks(name, parts, color):
+    """Placeholder from boxes in socket space: (center (x, up, forward), size (x, up, forward)) in metres."""
+    verts, faces = [], []
+    for (cx, cy, cz), (sx, sy, sz) in parts:
+        o = len(verts)
+        for dx in (-0.5, 0.5):
+            for dy in (-0.5, 0.5):
+                for dz in (-0.5, 0.5):
+                    verts.append((cx + dx * sx, cy + dy * sy, cz + dz * sz))
+        faces += [(o + a, o + b, o + c, o + d) for a, b, c, d in
+                  ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))]
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    ob = bpy.data.objects.new(name, me)
+    ref_col.objects.link(ob)
+    ob.color = color
+    ob.parent = attach
+    ob.hide_select = True
+    return ob
+
+
+ORANGE, GREY, BROWN, STEEL, GOLD = (0.9, 0.45, 0.1, 1), (0.25, 0.25, 0.28, 1), (0.55, 0.35, 0.2, 1), \
+    (0.45, 0.5, 0.55, 1), (0.85, 0.7, 0.2, 1)
+REFS = {
+    "Rifle": blocks("REF_Rifle", [
+        ((0, 0.06, 0.10), (0.04, 0.07, 0.30)), ((0, 0.075, 0.42), (0.02, 0.02, 0.36)),
+        ((0, 0.05, -0.17), (0.035, 0.08, 0.24)), ((0, -0.01, 0.0), (0.03, 0.10, 0.04)),
+        ((0, 0.0, 0.08), (0.025, 0.09, 0.04)), ((0, 0.035, 0.26), (0.035, 0.045, 0.14))], ORANGE),
+    "Pistol": blocks("REF_Pistol", [
+        ((0, 0.065, 0.06), (0.03, 0.035, 0.19)), ((0, -0.005, -0.005), (0.028, 0.11, 0.045)),
+        ((0, 0.025, 0.04), (0.012, 0.012, 0.05))], GREY),
+    "Shotgun": blocks("REF_Shotgun", [
+        ((0, 0.06, 0.08), (0.045, 0.07, 0.26)), ((0, 0.08, 0.48), (0.024, 0.024, 0.55)),
+        ((0, 0.045, 0.40), (0.022, 0.022, 0.40)), ((0, 0.045, 0.32), (0.05, 0.05, 0.16)),
+        ((0, 0.03, -0.20), (0.04, 0.09, 0.30)), ((0, -0.01, 0.0), (0.03, 0.10, 0.04))], BROWN),
+    "Bat": blocks("REF_Bat", [  # handle runs along the grip axis (socket Y)
+        ((0, -0.11, 0), (0.05, 0.02, 0.05)), ((0, 0.05, 0), (0.03, 0.30, 0.03)),
+        ((0, 0.40, 0), (0.05, 0.40, 0.05)), ((0, 0.62, 0), (0.065, 0.12, 0.065))], BROWN),
+    "Crowbar": blocks("REF_Crowbar", [
+        ((0, 0.25, 0), (0.02, 0.62, 0.02)), ((0, 0.57, 0.035), (0.02, 0.02, 0.07)),
+        ((0, -0.07, 0.02), (0.02, 0.02, 0.05))], STEEL),
+    "Key": blocks("REF_Key", [  # held between thumb and index; blade forward
+        ((0, 0.0, 0.0), (0.004, 0.025, 0.025)), ((0, 0.0, 0.035), (0.003, 0.01, 0.045))], GOLD),
+}
+
+
+def show_ref(which=None):
+    for k, ob in REFS.items():
+        ob.hide_set(k != which)
+        ob.hide_render = k != which
+
 
 # ---------------------------------------------------------------- final rest check
 bpy.context.view_layer.update()
@@ -498,63 +542,325 @@ worst_loc = max(((pbs[n].matrix.translation - arm.data.bones[n].matrix_local.tra
                 for n in DEFORM + ["AnimCamera"])
 # Blender pose matrices are float32: angles below ~0.04 deg read as 0 here.
 print(f"rest check (float32, ~0.04 deg floor): max rotation error {math.degrees(worst[0]):.4f} deg ({worst[1]}), "
-      f"max location error {worst_loc[0]:.4f} cm ({worst_loc[1]})")
+      f"max location error {worst_loc[0] * 1000:.3f} mm ({worst_loc[1]})")
 
-# ---------------------------------------------------------------- example Action: FPS ready pose
+# ---------------------------------------------------------------- start poses / test animation
+# Built with the same keying + switch logic as the FPS Rig panel (fps_rig_tools.py).
+FOLLOW_DEFAULTS = {"CTRL_Hand_IK.L": 1.0, "CTRL_Hand_IK.R": 1.0, "CTRL_Weapon": 1.0, "CTRL_Camera": 0.0}
+CTRLS = [pb.name for pb in pbs if pb.name.startswith("CTRL_")]
+MIRROR = Matrix.Diagonal((-1.0, 1.0, 1.0, 1.0))
+HAND_IN_SOCKET_R = socket_in_hand.inverted()                 # right hand (bone frame) in socket space
+HAND_IN_SOCKET_L = MIRROR @ HAND_IN_SOCKET_R @ MIRROR         # mirrored grip for the left hand
+EYE_TARGET = EYE_WORLD + Vector((0, -10.0, 0))               # aim point 10 m ahead of the eyes
+
+
+def upd():
+    arm.update_tag()
+    bpy.context.view_layer.update()
+
+
 def set_world(name, pos, y=None, z=None):
     """Pose a control at a world position; optional local Y/Z toward world directions."""
-    bpy.context.view_layer.update()
+    upd()
     pb = pbs[name]
-    cur = MW @ pb.matrix
-    rot = cur.to_3x3().normalized()
+    rot = (MW @ pb.matrix).to_3x3().normalized()
     if y is not None:
-        Y = Vector(y).normalized()
-        Z = (Vector(z) - Vector(z).project(Y)).normalized()
-        rot = Matrix((Y.cross(Z), Y, Z)).transposed()
-    rot_arm = (INV3 @ rot).normalized()
-    pb.matrix = Matrix.LocRotScale(INV @ Vector(pos), rot_arm.to_quaternion(), Vector((1, 1, 1)))
-    bpy.context.view_layer.update()
+        rot = frame(y, z)
+    pb.matrix = Matrix.LocRotScale(INV @ Vector(pos), (INV3 @ rot).normalized().to_quaternion(), Vector((1, 1, 1)))
+    upd()
 
 
-pbs["CTRL_Chest"].rotation_euler = (0, math.radians(-8), 0)
-pbs["CTRL_UpperChest"].rotation_euler = (0, math.radians(-10), 0)
-pbs["CTRL_Shoulder.L"].rotation_euler = (0, 0, math.radians(12))
-grip = Vector((-0.11, -0.30, 1.47))
-set_world("CTRL_Weapon", grip, FWD, UP)  # right hand holds the weapon via the socket offset
-yl = Vector((-0.8, -0.5, 0.15)).normalized()
-zl = Vector((0, 0, 1)); zl = (zl - zl.project(yl)).normalized()
-set_world("CTRL_Hand_IK.L", grip + Vector((0, -0.19, 0)) - yl * 0.06 - zl * 0.035, yl, zl)
-set_world("CTRL_Elbow_Pole.R", (-0.55, 0.0, 0.95))
-set_world("CTRL_Elbow_Pole.L", (0.45, -0.25, 0.85))
-pbs["CTRL_Grip.R"].rotation_euler = (math.radians(65), 0, 0)
-pbs["CTRL_Index.R"].rotation_euler = (math.radians(-45), 0, 0)
-pbs["CTRL_Thumb.R"].rotation_euler = (math.radians(45), 0, 0)
-pbs["CTRL_Grip.L"].rotation_euler = (math.radians(45), 0, 0)
-pbs["CTRL_Thumb.L"].rotation_euler = (math.radians(15), 0, 0)
-bpy.context.view_layer.update()
+def set_world_matrix(name, world):
+    upd()
+    pbs[name].matrix = Matrix.LocRotScale(INV @ world.translation, (INV3 @ world.to_3x3()).normalized().to_quaternion(),
+                                          Vector((1, 1, 1)))
+    upd()
+
+
+def world_of(name):
+    upd()
+    m = MW @ pbs[name].matrix
+    return Matrix.LocRotScale(m.translation, m.to_quaternion(), Vector((1, 1, 1)))
+
+
+def socket_frame(pos, barrel, up):
+    """World matrix of the weapon socket: Y = weapon up, Z = barrel / business end."""
+    return Matrix.Translation(Vector(pos)) @ frame(up, barrel).to_4x4()
+
+
+def place_weapon(pos, barrel, up):
+    set_world("CTRL_Weapon", pos, barrel, up)  # CTRL_Weapon: Y = barrel, Z = up
+
+
+def right_hand_to_socket(sock):
+    """Right hand placed so that the socket lands on `sock` (used while Follow Weapon = 0)."""
+    set_world_matrix("CTRL_Hand_IK.R", sock @ HAND_IN_SOCKET_R)
+
+
+def left_hand_on_socket(offset=(0, 0, 0), sock=None):
+    """Left hand gripping the weapon, mirrored right-hand grip shifted by offset (socket space, m)."""
+    sock = sock or world_of("WPN_Socket")
+    set_world_matrix("CTRL_Hand_IK.L", sock @ Matrix.Translation(Vector(offset)) @ HAND_IN_SOCKET_L)
+
+
+def fingers(side, grip=0, thumb=0, index=0, spread=0):
+    pbs[f"CTRL_Grip.{side}"].rotation_euler = (math.radians(grip), 0, math.radians(spread))
+    pbs[f"CTRL_Thumb.{side}"].rotation_euler = (math.radians(thumb), 0, 0)
+    pbs[f"CTRL_Index.{side}"].rotation_euler = (math.radians(index), 0, 0)
+
+
+def rot(name, x=0.0, y=0.0, z=0.0):
+    pbs[name].rotation_euler = (math.radians(x), math.radians(y), math.radians(z))
+
+
+def reset_pose(follow=None):
+    for pb in pbs:
+        pb.matrix_basis = Matrix()
+    for name, value in {**FOLLOW_DEFAULTS, **(follow or {})}.items():
+        pbs[name][tools.FOLLOW_PROPS[name]] = value
+    upd()
+
+
+def new_action(name, start, end):
+    act = bpy.data.actions.new(name)
+    act.use_fake_user = True
+    arm.animation_data.action = act
+    act.use_frame_range = True
+    act.frame_start, act.frame_end = start, end
+    return act
+
+
+def key_all(f):
+    for n in CTRLS:
+        tools.key_control(arm, n, f)
+
+
+def make_cyclic():
+    for fc in tools.action_fcurves(arm):
+        if not any(m.type == "CYCLES" for m in fc.modifiers):
+            fc.modifiers.new("CYCLES")
+
+
+def looping_action(name, follow, pose, keys):
+    """Idle loop over frames 1-60: pose(phase) sets the full pose for phase 0..1; keys at the given frames."""
+    new_action(name, 1, 60)
+    for f in keys:
+        scene.frame_set(f)
+        reset_pose(follow)
+        pose(((f - 1) % 60) / 60.0)
+        key_all(f)
+    make_cyclic()
+
+
+def breath(phase, amount=1.0):
+    """Breathing: chest lifts and opens slightly; 0 at phase 0, max at 0.5."""
+    b = (1 - math.cos(2 * math.pi * phase)) / 2 * amount
+    return b
+
 
 arm.animation_data_create()
-example = bpy.data.actions.new("Example_FPS_Ready")
-example.use_fake_user = True
-arm.animation_data.action = example
-for pb in pbs:
-    if not pb.name.startswith("CTRL_"):
-        continue
-    for f in (1, 30):
-        pb.keyframe_insert("location", frame=f)
-        pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler", frame=f)
-example.use_frame_range = True
-example.frame_start, example.frame_end = 1, 30
-scene.frame_start, scene.frame_end = 1, 30
-scene.frame_set(1)
-print("example reach error R %.4f m, L %.4f m" % (
-    ((MW @ pbs[P + "RightHand"].head) - (MW @ pbs["CTRL_Hand_IK.R"].head)).length,
-    ((MW @ pbs[P + "LeftHand"].head) - (MW @ pbs["CTRL_Hand_IK.L"].head)).length))
+LOOP3 = (1, 31, 61)
+LOOP5 = (1, 16, 31, 46, 61)
 
-# Embed the export helper as a text block
-if os.path.exists(EXPORT_SCRIPT):
-    t = bpy.data.texts.new("export_action_to_unity.py")
-    t.from_string(open(EXPORT_SCRIPT).read())
+
+# Unarmed idle: arms relaxed, slight breathing
+def unarmed_body(b):
+    pbs["CTRL_Torso"].location = (0, -0.005 + 0.003 * b, 0)  # torso Y = up
+    rot("CTRL_Chest", -1.2 * b)
+    rot("CTRL_UpperChest", -0.8 * b)
+    rot("CTRL_Neck", 2.0 + 0.6 * b)
+    rot("CTRL_Shoulder.L", 4 - 0.8 * b)  # shoulder local +X lowers the shoulder on both sides
+    rot("CTRL_Shoulder.R", 4 - 0.8 * b)
+
+
+def unarmed_arms(b=0.0):
+    set_world("CTRL_Elbow_Pole.L", (0.24, 0.45, 1.15))
+    set_world("CTRL_Elbow_Pole.R", (-0.24, 0.45, 1.15))
+    set_world("CTRL_Hand_IK.L", (0.215, 0.025, 0.935 + 0.003 * b), (0.08, -0.12, -1), (-1, 0.2, 0))
+    set_world("CTRL_Hand_IK.R", (-0.215, 0.025, 0.935 + 0.003 * b), (-0.08, -0.12, -1), (1, 0.2, 0))
+    fingers("L", 22, 12, -4)
+    fingers("R", 22, 12, -4)
+
+
+UNARMED = {"CTRL_Hand_IK.L": 0.0, "CTRL_Hand_IK.R": 0.0}
+
+
+def unarmed_pose(phase):
+    b = breath(phase)
+    unarmed_body(b)
+    unarmed_arms(b)
+
+
+looping_action("Unarmed_Idle", UNARMED, unarmed_pose, LOOP3)
+
+
+# Guard idle: fists up, light sway and breathing; fists ride with the chest
+def guard_pose(phase):
+    b = breath(phase)
+    sway = math.sin(2 * math.pi * phase)
+    pbs["CTRL_Torso"].location = (0.010 * sway, -0.03 + 0.004 * b, 0)
+    rot("CTRL_Torso", 0, -12 + 2.0 * sway, 0)  # bladed stance, slight weave
+    rot("CTRL_Chest", 5 - 1.2 * b)
+    rot("CTRL_UpperChest", 4 - 0.8 * b, 2 * sway)
+    rot("CTRL_Neck", -4)
+    rot("CTRL_Head", -4, 10)
+    set_world("CTRL_Elbow_Pole.L", (0.42, -0.10, 1.00))
+    set_world("CTRL_Elbow_Pole.R", (-0.42, -0.10, 1.00))
+    fingers("L", 88, 50)
+    fingers("R", 88, 50)
+    # fists defined relative to the upper chest, so they follow breathing/sway
+    chest = world_of("CTRL_UpperChest")
+    for side, pos, y, z in (("L", (0.14, -0.36, 1.38), (-0.10, -0.70, 0.70), (-0.90, 0.30, 0.0)),
+                            ("R", (-0.15, -0.30, 1.35), (0.10, -0.70, 0.70), (0.90, 0.30, 0.0))):
+        local = GUARD_CHEST_INV @ (Matrix.Translation(Vector(pos)) @ frame(y, z).to_4x4())
+        set_world_matrix(f"CTRL_Hand_IK.{side}", chest @ local)
+
+
+reset_pose(UNARMED)
+pbs["CTRL_Torso"].location = (0, -0.03, 0)
+rot("CTRL_Torso", 0, -12, 0)
+rot("CTRL_Chest", 5)
+rot("CTRL_UpperChest", 4)
+GUARD_CHEST_INV = world_of("CTRL_UpperChest").inverted()
+looping_action("Guard_Idle", UNARMED, guard_pose, LOOP5)
+
+
+# Melee: bat (two hands, left follows the weapon) and crowbar (right hand only)
+def melee_body(b, lean=4):
+    pbs["CTRL_Torso"].location = (0, -0.02 + 0.003 * b, 0)
+    rot("CTRL_Chest", lean - 1.2 * b)
+    rot("CTRL_UpperChest", 2 - 0.8 * b)
+
+
+def bat_pose(phase):
+    melee_body(breath(phase))
+    place_weapon((-0.17, -0.20, 1.27), (0, -1, 0.2), (-0.20, 0.45, 0.87))
+    left_hand_on_socket((0.0, -0.10, 0.0))
+    set_world("CTRL_Elbow_Pole.R", (-0.50, 0.10, 1.05))
+    set_world("CTRL_Elbow_Pole.L", (0.30, -0.30, 0.90))
+    fingers("R", 82, 45)
+    fingers("L", 82, 45)
+
+
+looping_action("Melee_Bat_Idle", {}, bat_pose, LOOP3)
+
+
+def crowbar_pose(phase):
+    b = breath(phase)
+    melee_body(b, lean=3)
+    place_weapon((-0.20, -0.26, 1.10), (0, -1, -0.3), (0.10, -0.35, 0.93))
+    set_world("CTRL_Hand_IK.L", (0.22, -0.10, 1.00 + 0.003 * b), (0.05, -0.45, -0.89), (-1, 0.2, 0))
+    set_world("CTRL_Elbow_Pole.R", (-0.45, 0.10, 0.95))
+    set_world("CTRL_Elbow_Pole.L", (0.30, 0.40, 1.10))
+    fingers("R", 80, 45)
+    fingers("L", 40, 20)
+
+
+looping_action("Melee_Crowbar_Idle", {"CTRL_Hand_IK.L": 0.0}, crowbar_pose, LOOP3)
+
+# Pistol at the hip, two hands, barrel on the screen centre 10 m ahead
+PISTOL_HIP = Vector((-0.10, -0.42, 1.46))
+PISTOL_AIM = (EYE_TARGET - PISTOL_HIP).normalized()
+PISTOL_SUPPORT = (-0.015, -0.025, 0.0)  # left-hand grip offset from the mirrored right grip (socket space)
+
+
+def pistol_fingers():
+    fingers("R", 70, 40, -40)
+    fingers("L", 78, 30)
+
+
+def pistol_hip_pose(phase):
+    b = breath(phase)
+    melee_body(b, lean=3)
+    place_weapon(PISTOL_HIP, PISTOL_AIM, (0, 0, 1))
+    left_hand_on_socket(PISTOL_SUPPORT)
+    set_world("CTRL_Elbow_Pole.R", (-0.40, 0.00, 0.95))
+    set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
+    pistol_fingers()
+
+
+looping_action("Pistol_Idle_Hip", {}, pistol_hip_pose, LOOP3)
+
+# Pistol_Draw (test animation): unarmed idle -> hand to holster -> pistol appears -> hip aim
+act = new_action("Pistol_Draw", 1, 24)
+act.pose_markers.new("WeaponShow").frame = 8
+DRAW_FOLLOW = {"CTRL_Hand_IK.L": 0.0, "CTRL_Hand_IK.R": 0.0}
+HOLSTER = socket_frame((-0.215, 0.04, 0.97), (0, 0.05, -1), (0, -1, 0))
+DRAW_UP = socket_frame((-0.20, -0.02, 1.12), (0, -0.55, -0.8), (0, -0.8, 0.55))
+DRAW_FWD = socket_frame((-0.12, -0.30, 1.25), (0, -1, 0.05), (0, 0, 1))
+DRAW_AIM = socket_frame(PISTOL_HIP, PISTOL_AIM, (0, 0, 1))
+right_keys = {8: HOLSTER, 12: DRAW_UP, 16: DRAW_FWD, 20: DRAW_AIM, 24: DRAW_AIM}
+for f in (1, 4, 8, 12, 16, 20, 24):
+    scene.frame_set(f)
+    reset_pose(DRAW_FOLLOW)
+    if f <= 4:
+        unarmed_body(0.0)
+        unarmed_arms()
+        if f == 4:  # anticipation: right hand starts moving back to the hip
+            set_world("CTRL_Hand_IK.R", (-0.225, 0.06, 0.97), (-0.1, -0.2, -1), (1, 0.2, 0))
+            fingers("R", 10, 5)
+    else:
+        melee_body(0.0, lean=3 if f >= 16 else 1)
+        set_world("CTRL_Elbow_Pole.R", (-0.45, 0.25 if f < 16 else 0.0, 1.0 if f < 16 else 0.95))
+        right_hand_to_socket(right_keys[f])
+        fingers("R", 70, 40, -40 if f >= 12 else 0)
+        if f < 16:  # left hand still relaxed, starting to come up
+            set_world("CTRL_Elbow_Pole.L", (0.24, 0.45, 1.15))
+            set_world("CTRL_Hand_IK.L", (0.20, -0.03 - 0.02 * (f >= 12), 0.96 + 0.06 * (f >= 12)),
+                      (0.0, -0.4, -0.9), (-1, 0.2, 0))
+            fingers("L", 22, 12)
+    key_all(f)
+# left hand reaches the pistol at f16: place it on the grip (world), then switch to Follow Weapon = 1
+scene.frame_set(16)
+set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
+left_hand_on_socket(PISTOL_SUPPORT)
+pistol_fingers()
+for n in ("CTRL_Hand_IK.L", "CTRL_Elbow_Pole.L", "CTRL_Grip.L", "CTRL_Thumb.L", "CTRL_Index.L"):
+    tools.key_control(arm, n, 16)
+tools.switch_follow(arm, "CTRL_Hand_IK.L", 1.0, frame=16)
+local_l = pbs["CTRL_Hand_IK.L"].matrix_basis.copy()  # grip relative to the weapon from now on
+for f in (20, 24):
+    scene.frame_set(f)
+    pbs["CTRL_Hand_IK.L"]["Follow Weapon"] = 1.0  # overrides the 0 keyed in the first pass
+    pbs["CTRL_Hand_IK.L"].matrix_basis = local_l
+    set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
+    pistol_fingers()
+    for n in ("CTRL_Hand_IK.L", "CTRL_Elbow_Pole.L", "CTRL_Grip.L", "CTRL_Thumb.L", "CTRL_Index.L"):
+        tools.key_control(arm, n, f)
+scene.frame_set(24)
+print("draw end: left hand on pistol error %.4f m" % (
+    (world_of("CTRL_Hand_IK.L").translation - (world_of("WPN_Socket") @ Matrix.Translation(Vector(PISTOL_SUPPORT))
+                                                @ HAND_IN_SOCKET_L).translation).length))
+
+# Example_FPS_Ready: rifle ready pose (kept from v1)
+new_action("Example_FPS_Ready", 1, 30)
+for f in (1, 30):
+    scene.frame_set(f)
+    reset_pose()
+    rot("CTRL_Chest", 0, -8)
+    rot("CTRL_UpperChest", 0, -10)
+    rot("CTRL_Shoulder.L", 0, 0, 12)
+    grip = Vector((-0.11, -0.30, 1.47))
+    place_weapon(grip, FWD, UP)  # right hand holds the weapon via the socket offset
+    yl = Vector((-0.8, -0.5, 0.15)).normalized()
+    zl = Vector((0, 0, 1)); zl = (zl - zl.project(yl)).normalized()
+    set_world("CTRL_Hand_IK.L", grip + Vector((0, -0.19, 0)) - yl * 0.06 - zl * 0.035, yl, zl)
+    set_world("CTRL_Elbow_Pole.R", (-0.55, 0.0, 0.95))
+    set_world("CTRL_Elbow_Pole.L", (0.45, -0.25, 0.85))
+    fingers("R", 65, 45, -45)
+    fingers("L", 45, 15)
+    key_all(f)
+
+# Open on the neutral idle, no weapon shown
+arm.animation_data.action = bpy.data.actions["Unarmed_Idle"]
+scene.frame_start, scene.frame_end = 1, 60
+scene.frame_set(1)
+show_ref(None)
+
+# Embed the FPS Rig panel (registers itself when the file is opened)
+t = bpy.data.texts.new("fps_rig_tools.py")
+t.from_string(open(TOOLS_SCRIPT).read())
+t.use_module = True
 
 # Tidy selection: armature active in pose mode
 for o in bpy.data.objects:

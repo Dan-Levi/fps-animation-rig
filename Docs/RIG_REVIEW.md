@@ -17,7 +17,7 @@ Verified in the exported FBX: rest rotation identity relative to the character r
 ## 2. Armature scale 0.01 / rotation X 90°
 
 - The object transform is how Blender represents a Y-up centimetre FBX; it cancels on export (the `Armature` node exports with zero rotation). **Kept.**
-- **Fixed:** export used *FBX Units Scale*, which wrote metres plus a **0.01-scaled `Armature` node**. Switched to **All Local**: centimetre units, identity `Armature` node, Hips local translation identical to the source FBX. Only remaining structural difference: the extra identity `Armature` node (Humanoid maps by bone name; verify in Unity).
+- **Fixed:** the first export wrote a **0.01-scaled `Armature` node**. Interim fix was *All Local* export; final fix (v1.1): the rig build applies the 0.01 scale, so the rig works in real metres (sidebar values are metres, not mislabelled cm) and *FBX Units Scale* export writes metre units with an unscaled `Armature` node and the same Hips transform as the source. Mesh deformation verified identical (≤ 4 µm). Only remaining structural difference: the extra identity `Armature` node (Humanoid maps by bone name; verify in Unity).
 
 ## 3. Weapon / hand IK / runtime attachment
 
@@ -44,9 +44,15 @@ No heel/toe roll pivots or roll slider (foot pivots at the ankle); no knee-pop s
 - IK pole angles solved with a more robust search.
 - Docs: precision claims corrected (rest pose matches within 0.05° – float32 level – not "0.0000°"), "spread/opposition" wording, weapon/camera behaviour, Unity assumptions marked as assumptions.
 
+## 7. Follow-up (v1.1)
+
+- Follow Weapon = 0 made the arm jump: expected space-switch behaviour (keys are relative to the followed space). Added the *Switch Follow (keep pose)* tool; start poses key the sliders per Action (before, a slider changed in one Action leaked into all others).
+- Sidebar showed "−152.9 m" for what was centimetres: fixed by building the rig in metres (see §2).
+- Added start poses, `Pistol_Draw` test animation, weapon references, centre cross in `FPS_View`, Norwegian step-by-step animator guide and `UNITY_INTEGRATION.md`.
+
 ## Open – needs the Unity project
 
-1. Import `Exports/Example_FPS_Ready.fbx` as Humanoid (*Copy From Other Avatar*) and check the pose.
+1. Import `Exports/Pistol_Draw.fbx` and `Pistol_Idle_Hip.fbx` as Humanoid (*Copy From Other Avatar*) and check the poses.
 2. Compare `AnimCamera` rest with the current neutral FPS camera.
 3. Confirm the right-hand weapon socket convention and values.
 4. Implement camera offset / cutscene ownership (RIG_PLAN §4), including the root-motion rule.

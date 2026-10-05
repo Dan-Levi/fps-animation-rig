@@ -8,7 +8,7 @@ Status: implemented in `Blender/FPS_Rig.blend` (built by `Blender/scripts/build_
 |---|---|
 | File | Binary FBX 7.7, FBX SDK 2020.2 (3ds Max export of a Mixamo character), Y-up, cm units |
 | Objects | `Armature` (65 bones) + `SM_LowPolyMale` (1036 verts, 2040 tris, 1 material, 1 UV map, no shape keys) |
-| Blender import | Armature object gets rot X 90°, scale 0.01 – this is how Blender represents a Y-up, cm FBX; kept as-is (see §6). Character is 1.76 m tall, faces −Y, feet on Z=0 |
+| Blender import | Armature object gets rot X 90°, scale 0.01 (Y-up, cm FBX). The rig build **applies the scale** (armature + mesh) so the rig works in metres; the 90° rotation is kept because it cancels the FBX axis conversion. Character is 1.76 m tall, faces −Y, feet on Z=0 |
 | Skeleton | Standard Mixamo: `mixamorig:Hips` root → Spine/Spine1/Spine2 → Neck/Head/HeadTop_End, Shoulder/Arm/ForeArm/Hand, 5 fingers × 4 bones, UpLeg/Leg/Foot/ToeBase/Toe_End |
 | Rest pose | T-pose. Elbows pre-bent ~16° (backward), knees ~4.5° (forward) – good IK bend hints |
 | Bone axes | Spine/neck/head: Y up, Z forward. Fingers curl on local **+X** (both hands) |
@@ -79,7 +79,7 @@ Intended Unity use (to implement and verify in Unity – not part of this repo):
 
 Assumption (to confirm against the Unity project): at runtime the weapon is attached to the **right-hand bone** through a socket transform.
 
-- `WPN_Socket` (hidden bone, not exported) is rigidly parented to `mixamorig:RightHand` – the Blender equivalent of that runtime socket. The visible empty `WPN_Attach` sits on it; weapon models (and the `REF_Weapon` placeholder) parent to `WPN_Attach`, so the weapon you see in Blender is exactly where a right-hand socket puts it in Unity.
+- `WPN_Socket` (hidden bone, not exported) is rigidly parented to `mixamorig:RightHand` – the Blender equivalent of that runtime socket. The visible empty `WPN_Attach` sits on it; weapon models (and the placeholders in the **Weapon References** collection: rifle, pistol, shotgun, bat, crowbar, key) parent to `WPN_Attach`, so the weapon you see in Blender is exactly where a right-hand socket puts it in Unity.
 - `CTRL_Weapon` is the animator's grab handle: it carries the right hand (**Follow Weapon** on the right hand), and the right hand carries the weapon. The left hand follows `WPN_Socket` – the weapon as actually held – so foregrip placement stays consistent even if the right hand is offset or cannot reach.
 - Rest grip offset = a pistol-grip hand pose. Socket axes match Unity conventions: +Z = barrel, +Y = weapon up, pivot = grip point. A weapon prefab authored with +Z forward and its pivot at the pistol grip needs no extra offset.
 - Socket transform for Unity (child of `mixamorig:RightHand`), derived from the rig and cross-checked against the FBX node; the X-mirror conversion to Unity is standard but should be verified once in Unity by eye:
@@ -90,10 +90,10 @@ Assumption (to confirm against the Unity project): at runtime the weapon is atta
 
 ## 6. Export to Unity
 
-Settings (also in the script `Blender/scripts/export_action_to_unity.py`, embedded in the .blend as a text block):
+Settings (in `Blender/scripts/fps_rig_tools.py`, embedded in the .blend as the self-registering **FPS Rig** sidebar panel: *Export this Action* / *Export all Actions*):
 
 - Selection: the armature only. Object types: Armature
-- Scale: **All Local**, Forward −Z, Up Y, Apply Transform off. This writes cm units and an unscaled `Armature` node, matching the source FBX. (*FBX Units Scale* would write metres with a 0.01-scaled `Armature` node – correct world positions but a scaled parent transform in Unity, a common source of Humanoid/root-motion scale problems.)
+- Scale: **FBX Units Scale**, Forward −Z, Up Y, Apply Transform off. With the rig in metres (armature scale 1) this writes metre units and an **unscaled** `Armature` node; Hips local (0, 0.988, 0.002) m – the same Unity transforms as the source FBX (which is in cm). Rule: the root node must end up unscaled; a 0.01/100 scale on it is a common source of Humanoid/root-motion scale problems.
 - Armature: **Only Deform Bones** on, **Add Leaf Bones** off, primary Y / secondary X
 - Animation: Bake on, NLA strips off, All Actions off, Force Start/End keying on, Simplify 0, 30 fps
 - Output: `Exports/<ActionName>.fbx`
@@ -115,10 +115,17 @@ Done in Blender (scripted checks):
 
 Still open – needs the Unity project:
 
-- Humanoid import of `Exports/Example_FPS_Ready.fbx` with *Copy From Other Avatar* on the existing avatar.
+- Humanoid import of `Exports/Pistol_Draw.fbx` (test animation) with *Copy From Other Avatar* on the existing avatar.
 - Compare `AnimCamera` rest position with the current neutral FPS camera.
 - Confirm the weapon attachment convention (§5) and socket values.
 - Implement the `AnimCamera` offset/cutscene logic (§4).
+
+## 7b. Start poses, tools and test animation (v1.1)
+
+- Actions (fake user, Follow sliders keyed with constant interpolation): `Unarmed_Idle`, `Guard_Idle`, `Melee_Bat_Idle`, `Melee_Crowbar_Idle`, `Pistol_Idle_Hip` (60-frame loops, cyclic F-curves), `Pistol_Draw` (24 frames, pose marker `WeaponShow` at 8), `Example_FPS_Ready`. The file opens on `Unarmed_Idle` with all weapon references hidden.
+- **FPS Rig** panel: *Switch Follow (keep pose)* flips a Follow slider without the control moving and keys slider + transform (old value held on the previous frame); export buttons. The build script uses the same functions for the start poses and `Pistol_Draw`.
+- `FPS_View` shows a centre cross (composition guide) = gameplay crosshair.
+- Unity-side guide: `Docs/UNITY_INTEGRATION.md`.
 
 ## 8. Out of scope for this version
 
