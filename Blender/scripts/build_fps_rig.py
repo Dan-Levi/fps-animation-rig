@@ -61,6 +61,7 @@ for o in bpy.data.objects:
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
+mesh_obj = bpy.data.objects["SM_LowPolyMale"]
 MW = arm.matrix_world.copy()
 INV = MW.inverted()
 INV3 = INV.to_3x3()
@@ -856,6 +857,17 @@ arm.animation_data.action = bpy.data.actions["Unarmed_Idle"]
 scene.frame_start, scene.frame_end = 1, 60
 scene.frame_set(1)
 show_ref(None)
+
+# FPS_View sits inside the head: hide back faces so the inside of the head is not drawn
+for mat in mesh_obj.data.materials:
+    if mat:
+        mat.use_backface_culling = True
+for screen in bpy.data.screens:
+    for area in screen.areas:
+        for space in area.spaces:
+            if space.type == "VIEW_3D":
+                space.shading.show_backface_culling = True
+scene.display.shading.show_backface_culling = True
 
 # Embed the FPS Rig panel (registers itself when the file is opened)
 t = bpy.data.texts.new("fps_rig_tools.py")

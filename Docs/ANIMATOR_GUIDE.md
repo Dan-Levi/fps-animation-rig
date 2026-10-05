@@ -176,6 +176,11 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
 - Om et klipp *styrer* kameraet eller bare *legger til* bevegelse, bestemmes i Unity.
 - `FPS_View` viser det nøytrale spillkameraet pluss det du animerer. Det viser ikke huk-høyden eller musebevegelsen fra spillet.
 
+### Ser du innsiden av hodet i FPS-visningen?
+- Kameraet står inne i hodet. Filen har **Backface Culling** slått på, så innsiden ikke tegnes.
+- Er den slått av i ditt vindu: Viewport Shading-pila (øverst til høyre i 3D-vinduet) → Options → **Backface Culling**.
+- I spillet skjules hodet vanligvis for førstepersonskameraet.
+
 ### Overkroppsklipp
 - Klipp som skal spilles oppå Mixamo-gange (våpenposer, skudd, lading, trekk): **ikke flytt `CTRL_Torso` eller `CTRL_Root`.** Bare overkropp, armer og hode tas med i Unity.
 
