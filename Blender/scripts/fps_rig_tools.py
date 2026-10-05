@@ -44,7 +44,7 @@ MOTION_RULES = [
 ]
 BODY_NAMES = ("frame", "body", "receiver")
 EFFECT_NAMES = ("muzzle", "eject")
-MOTION_COLORS = {"SLIDE": "THEME02", "ROTATE": "THEME09", "DETACH": "THEME03", "FREE": "THEME07"}
+MOTION_COLORS = {"SLIDE": "THEME02", "ROTATE": "THEME09", "DETACH": "THEME03", "FREE": "THEME07", "ROOT": "THEME10"}
 MOTION_ITEMS = [("SLIDE", "Slide", "Moves along one axis (slide, bolt, pump)"),
                 ("ROTATE", "Rotate", "Rotates around one axis (trigger, hammer, selector)"),
                 ("DETACH", "Detachable", "Free, can follow the left hand (magazine, shell)"),
@@ -85,6 +85,13 @@ def key_control(obj, name, frame):
     pb = obj.pose.bones[name]
     pb.keyframe_insert("location", frame=frame)
     pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler", frame=frame)
+    if str(pb.get("Motion", "")).split(" ")[0] in ("DETACH", "ROOT"):
+        pb.keyframe_insert("scale", frame=frame)  # scale 0 = hidden (also in Unity)
+        path = f'pose.bones["{name}"].scale'
+        for fc in action_fcurves(obj):
+            if fc.data_path == path:
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "CONSTANT"  # show/hide snaps, never shrinks
     prop = follow_prop(pb)
     if prop:
         pb.keyframe_insert(f'["{prop}"]', frame=frame)
@@ -170,7 +177,7 @@ def weapon_rig(name):
 
 def reset_weapon_pose(wobj):
     for pb in wobj.pose.bones:
-        pb.matrix_basis = Matrix()
+        pb.matrix_basis = Matrix()  # also scale 1: visible
         prop = follow_prop(pb)
         if prop:
             pb[prop] = 0.0
@@ -182,10 +189,10 @@ def ensure_weapon_action(wobj, act):
     ad = wobj.animation_data_create()
     slot = next((s for s in act.slots if s.name_display == wobj.name), None)
     if ad.action != act:
+        reset_weapon_pose(wobj)  # channels this clip does not key go back to rest
         ad.action = act
     if slot is None:
         slot = act.slots.new(id_type="OBJECT", name=wobj.name)
-        reset_weapon_pose(wobj)  # no weapon keys yet: show the weapon at rest
     if ad.action_slot != slot:
         ad.action_slot = slot
     return slot
@@ -265,8 +272,11 @@ def set_motion(pb, motion, axis=None):
     axis = axis or ("Y" if motion == "SLIDE" else "X")
     i = "XYZ".index(axis)
     pb.rotation_mode = "XYZ"
-    pb.lock_scale = (True, True, True)
-    if motion == "SLIDE":
+    pb.lock_scale = (motion != "DETACH",) * 3  # detachable parts: scale 0 hides them
+    if motion == "ROOT":  # whole weapon: only scale (0 = hidden, 1 = shown)
+        pb.lock_location = pb.lock_rotation = (True, True, True)
+        pb.lock_scale = (False, False, False)
+    elif motion == "SLIDE":
         pb.lock_location = tuple(k != i for k in range(3))
         pb.lock_rotation = (True, True, True)
     elif motion == "ROTATE":
@@ -400,6 +410,7 @@ def make_weapon_rig(objs, character=None, attach=None):
         return b
 
     put(root_name, Matrix(), None, True, 0.05)
+    put("CTRL_Root", Matrix(), None, False, 0.05)  # whole weapon: scale 0 hides it
     for o in parts:
         pp = part_parent(o)
         L = sizes[o] * 0.5
@@ -423,6 +434,19 @@ def make_weapon_rig(objs, character=None, attach=None):
 
     pbs = wobj.pose.bones
     c_def.assign(wobj.data.bones[root_name])
+    c_ctrl.assign(wobj.data.bones["CTRL_Root"])
+    root_pb = pbs[root_name]
+    for c in list(root_pb.constraints):
+        root_pb.constraints.remove(c)
+    con = root_pb.constraints.new("COPY_TRANSFORMS")
+    con.target, con.subtarget = wobj, "CTRL_Root"
+    set_motion(pbs["CTRL_Root"], "ROOT")
+    if body.type == "MESH" and body.data.vertices:
+        bone_world = wobj.matrix_world @ wobj.data.bones["CTRL_Root"].matrix_local
+        to_bone = bone_world.inverted() @ Matrix.LocRotScale(W[body].translation, W[body].to_quaternion(), Vector((1, 1, 1)))
+        pbs["CTRL_Root"].custom_shape = _box_widget(f"WGT_{wname}_Root", [to_bone @ Vector(v.co) for v in body.data.vertices],
+                                                    margin=0.012)
+        pbs["CTRL_Root"].use_custom_shape_bone_size = False
     for o in effects:
         c_def.assign(wobj.data.bones[bone_of[o]])
     for o in parts:
@@ -597,7 +621,8 @@ def _export_weapon_action(act, wobj, filepath, start, end, scene):
         loc = {}
         for b in order:
             pb = wobj.pose.bones[b.name]
-            loc[b.name] = (pb.parent.matrix.inverted() @ pb.matrix) if pb.parent else pb.matrix.copy()
+            # inverted_safe: a hidden (scale 0) parent has no proper inverse
+            loc[b.name] = (pb.parent.matrix.inverted_safe() @ pb.matrix) if pb.parent else pb.matrix.copy()
         frames[f] = loc
     name = wobj.name
     wobj.name = name + "__src"
@@ -792,7 +817,7 @@ class FPSRIG_OT_set_motion(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         pb = context.active_pose_bone
-        return pb is not None and "Motion" in pb
+        return pb is not None and "Motion" in pb and pb["Motion"] != "ROOT"
 
     def invoke(self, context, event):
         cur = context.active_pose_bone["Motion"].split()
@@ -875,7 +900,9 @@ class FPSRIG_PT_panel(bpy.types.Panel):
         pb = context.active_pose_bone
         if pb is not None and follow_prop(pb):
             box.prop(pb, f'["{follow_prop(pb)}"]', text=f"{pb.name}: {follow_prop(pb)}")
-        if pb is not None and "Motion" in pb:
+        if pb is not None and pb.get("Motion") == "ROOT":
+            box.label(text="Whole weapon: scale 0 = hidden, 1 = shown")
+        elif pb is not None and "Motion" in pb:
             box.operator(FPSRIG_OT_set_motion.bl_idname, text=f"Motion: {pb['Motion']} (change)")
         if pb is None or (follow_prop(pb) is None and "Motion" not in pb):
             box.label(text="Select a hand, weapon, camera or weapon-part control")

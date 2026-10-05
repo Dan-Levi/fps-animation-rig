@@ -36,7 +36,7 @@ Hver animasjon er en **Action** i Blender og blir én FBX-fil i Unity. Disse fø
 | `Pistol_Idle_Hip` | Pistol med to hender i hofteposisjon, sikter mot midten av skjermen | Pistol | 60 frames |
 | `Pistol_Draw` | Fra idle trekkes pistolen, og klippet ender i `Pistol_Idle_Hip` | Pistol | nei, 24 frames |
 | `Pistol_Fire` | Skudd fra hofta: avtrekker, sliden går bak og fram, rekyl, lite kamerarykk | Pistol (animert) | nei, 12 frames |
-| `Pistol_Reload` | Magasinet ut, nytt magasin fra venstre hofte, inn, tilbake i grepet | Pistol (animert) | nei, 52 frames |
+| `Pistol_Reload` | Magasinet glir ut og faller, nytt magasin fra venstre hofte, inn, tilbake i grepet | Pistol (animert) | nei, 52 frames |
 | `Example_FPS_Ready` | Rifle klar | Rifle | nei |
 
 ![Pistol_Draw](images/pistol_draw.png)
@@ -156,6 +156,7 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
 3. Legg en markør der våpenet skal dukke opp, f.eks. når hånden er ved hofta:
    - I Action Editor slår du på **Show Pose Markers**. Den ligger i View-menyen eller Marker-menyen, avhengig av Blender-versjonen.
    - Trykk **M** på framen, og gi markøren navnet `WeaponShow` (F2).
+   - **Skjul våpenet frem til da:** velg våpenets `CTRL_Root` (stor boks rundt hele våpenet). Sett skala til 0 (S 0, I) på første frame og skala 1 på `WeaponShow`-framen. Skalaen bytter momentant og blir med til Unity, så våpenet er skjult der også.
 4. Venstre hånd kommer opp. På framen der den griper, trykker du **Switch Follow** på `CTRL_Hand_IK.L` (0 → 1).
 5. Avslutt i nøyaktig samme pose som idle-posen klippet skal gå over i, f.eks. `Pistol_Idle_Hip`.
 
@@ -176,10 +177,11 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
 
 ### Lading (se `Pistol_Reload`)
 1. Venstre hånd slipper våpenet: velg `CTRL_Hand_IK.L` og trykk **Switch Follow** (1 → 0).
-2. Magasinet (`CTRL_Magazine`) glir ut av våpenet. Sett markørene `MagOut` når det løsner og `MagHide` når det skal forsvinne (Unity skjuler det eller slipper et fysisk magasin).
-3. Hånden henter et nytt magasin ved hofta. Der velger du `CTRL_Magazine` og setter **Follow Left Hand** = 1, og plasserer magasinet i hånden. Sett markøren `MagShow`.
-4. Hånden fører magasinet inn. Når det sitter, trykker du **Switch Follow** på `CTRL_Magazine` (1 → 0), så det blir sittende i våpenet. Sett markøren `MagIn`.
-5. Hånden tilbake på grepet: **Switch Follow** på `CTRL_Hand_IK.L` (0 → 1).
+2. Magasinet (`CTRL_Magazine`) glir ut av grepet og faller. Sett markøren `MagOut` når det løsner og `MagDrop` når det er fri av våpenet. Der kan Unity slippe et fysisk magasin.
+3. Når det har falt ut av bildet, skaler du det til 0 (S 0, I). Det er skjult til det nye magasinet skal vises, og skjulingen blir med i Unity-klippet.
+4. Hånden henter et nytt magasin ved hofta. Der velger du `CTRL_Magazine`, setter **Follow Left Hand** = 1, skala 1, og plasserer magasinet i hånden. Sett markøren `MagShow`.
+5. Hånden fører magasinet inn. Når det sitter, trykker du **Switch Follow** på `CTRL_Magazine` (1 → 0), så det blir sittende i våpenet. Sett markøren `MagIn`.
+6. Hånden tilbake på grepet: **Switch Follow** på `CTRL_Hand_IK.L` (0 → 1).
 
 Samme oppskrift gjelder hagle (Shell i stedet for Magazine, én gang per patron), SMG og rifle.
 
@@ -225,7 +227,7 @@ Dette skjer når du trykker:
 1. Dra FBX-filen inn i prosjektet.
 2. Under **Rig** velger du Animation Type **Humanoid**, Avatar Definition **Copy From Other Avatar** og den eksisterende Mixamo-avataren. Trykk **Apply**.
 3. Under **Animation** heter klippet det samme som Actionen. Huk av **Loop Time** for idle-klippene.
-4. Markøren `WeaponShow`/`WeaponHide` blir ikke med automatisk. Legg den inn som en **Animation Event** på samme frame (se `Docs/UNITY_INTEGRATION.md`).
+4. Markørene (`WeaponShow`, `MagDrop` osv.) blir ikke med automatisk. Skjuling med skala 0 blir derimot med i klippene. Legg den inn som en **Animation Event** på samme frame (se `Docs/UNITY_INTEGRATION.md`).
 
 **Våpen i Unity:** importeres som **Generic**, ikke Humanoid. Se `Docs/UNITY_INTEGRATION.md` §7.
 
@@ -284,6 +286,8 @@ Det trengs ingen bein i Max.
 - **Animasjonene dine beholdes**, fordi delene har samme navn.
 
 ### 8.3 Justere bevegelse
+- **`CTRL_Root`** (stor boks rundt hele våpenet) skjuler våpenet: skala 0 = skjult, 1 = synlig. Brukes i trekk og holster.
+- **Løse deler** (magasin, patron) kan også skaleres til 0 for å skjules.
 - Velg en våpenkontroll i Pose Mode. Panelet viser **Motion: …**. Trykk på den for å velge type (Slide / Rotate / Detachable / Free) og akse.
 - Det settes som vanlige lås-ikoner i N → Item, så du kan også slå dem av og på der.
 

@@ -894,7 +894,7 @@ print("draw end: left hand on pistol error %.4f m" % (
 
 # ---------------------------------------------------------------- weapon animation examples (Pistol)
 # Character + pistol parts in ONE Action: the pistol rig gets its own slot (tools.ensure_weapon_action).
-W_CTRLS = ("CTRL_Slide", "CTRL_Trigger", "CTRL_Magazine")
+W_CTRLS = ("CTRL_Root", "CTRL_Slide", "CTRL_Trigger", "CTRL_Magazine")
 
 
 def wpb(n):
@@ -932,19 +932,32 @@ def set_weapon_ctrl_world(name, world):
     upd()
 
 
+# Pistol_Draw: the pistol is hidden (CTRL_Root scale 0) until it is drawn from the holster at f8
+act = bpy.data.actions["Pistol_Draw"]
+arm.animation_data.action = act
+tools.ensure_weapon_action(WPN_PISTOL, act)
+for f, shown in ((1, 0.0), (7, 0.0), (8, 1.0), (24, 1.0)):
+    scene.frame_set(f)
+    wreset()
+    wpb("CTRL_Root").scale = (shown,) * 3
+    wkey(f)
+
 # Pistol_Fire: hip shot - trigger, slide cycle, recoil in the hands, small camera kick
 act = new_action("Pistol_Fire", 1, 12)
 tools.set_action_weapon(act, "Pistol")
 act.pose_markers.new("Fire").frame = 2
-FIRE = {1: (0, 0, 0, 0), 2: (1.0, 1.0, 0.7, 1.0), 3: (1.0, 1.0, 1.0, 0.7), 4: (0.0, 0.6, 0.85, 0.45),
-        5: (0.0, 0.0, 0.6, 0.25), 8: (0.0, 0.0, 0.2, 0.08), 12: (0, 0, 0, 0)}  # slide, trigger, kick, camera (0..1)
+FIRE = {1: (0, 0, 0, 0), 2: (1.0, 1.0, 0.75, 0.6), 3: (1.0, 1.0, 1.0, 1.0), 4: (0.0, 0.5, 0.7, 0.7),
+        5: (0.0, 0.0, 0.35, 0.4), 6: (0.0, 0.0, -0.08, 0.15), 8: (0.0, 0.0, 0.03, 0.05),
+        12: (0, 0, 0, 0)}  # slide, trigger, kick (negative = settle overshoot), camera (0..1)
 for f, (sl, tr, kick, cam) in FIRE.items():
     scene.frame_set(f)
     reset_pose()
     wreset()
     melee_body(0.0, lean=3)
-    aim, up = tilt(PISTOL_AIM, Vector((0, 0, 1)), 8 * kick)
-    place_weapon(PISTOL_HIP - PISTOL_AIM * 0.035 * kick + Vector((0, 0, 0.012 * kick)), aim, up)
+    rot("CTRL_UpperChest", 2 - 2.0 * kick)  # the shot pushes the upper body back a little
+    rot("CTRL_Head", -1.0 * kick)
+    aim, up = tilt(PISTOL_AIM, Vector((0, 0, 1)), 17 * kick)  # muzzle flip
+    place_weapon(PISTOL_HIP - PISTOL_AIM * 0.05 * kick + Vector((0, 0, 0.018 * kick)), aim, up)
     left_hand_on_socket(PISTOL_SUPPORT)
     set_world("CTRL_Elbow_Pole.R", (-0.40, 0.00, 0.95))
     set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
@@ -958,7 +971,7 @@ for f, (sl, tr, kick, cam) in FIRE.items():
 # Pistol_Reload: magazine out, new magazine from the left hip, inserted, back to two-handed grip
 act = new_action("Pistol_Reload", 1, 52)
 tools.set_action_weapon(act, "Pistol")
-for name, frame_ in (("MagOut", 8), ("MagHide", 12), ("MagShow", 22), ("MagIn", 34)):
+for name, frame_ in (("MagOut", 8), ("MagDrop", 12), ("MagShow", 22), ("MagIn", 34)):
     act.pose_markers.new(name).frame = frame_
 R_POS = Vector((-0.07, -0.33, 1.34))
 R_AIM = Vector((0.18, -0.9, 0.40)).normalized()
@@ -989,7 +1002,7 @@ for f in (1, 6, 8, 12, 20, 22, 26, 30, 34, 38, 44, 48, 52):
 # left hand lets go at f8 and works in world space until it is back on the grip at f44
 tools.switch_follow(arm, "CTRL_Hand_IK.L", 0.0, frame=8)
 LEFT_FREE = {
-    12: ((0.12, -0.25, 1.20), (0.0, -0.6, -0.8), (-1, 0.1, 0), (40, 20)),
+    12: ((0.17, -0.15, 1.10), (0.0, -0.4, -0.9), (-1, 0.1, 0), (30, 15)),  # straight down toward the pouch
     20: ((0.215, -0.02, 1.02), (0.0, -0.25, -1), (-1, 0.1, 0), (60, 35)),  # magazine pouch, left hip
     22: ((0.20, -0.06, 1.06), (-0.1, -0.5, -0.85), (-1, 0.1, 0), (60, 35)),  # leaving the pouch with the new mag
     26: ((0.08, -0.28, 1.20), (-0.3, -0.9, 0.3), (0, 0, 1), (60, 35)),
@@ -1022,11 +1035,27 @@ for f in (48, 52):
     pbs["CTRL_Hand_IK.L"]["Follow Weapon"] = 1.0
     left_hand_on_socket(PISTOL_SUPPORT)
     tools.key_control(arm, "CTRL_Hand_IK.L", f)
-# magazine: drops out (f8-12), held out of sight, appears in the left hand (f22), inserted (f34)
-for f in (12, 20, 21):
+# magazine: slides out (f8-12), falls (f12-16), hidden (scale 0, f17-21), appears in the left hand (f22),
+# inserted (f34). In Unity the MagDrop event can instead hide it and spawn a physics magazine at f12.
+for f, out in ((10, 0.05), (12, 0.13)):
     scene.frame_set(f)
     wpb("CTRL_Magazine")["Follow Left Hand"] = 0.0
-    wpb("CTRL_Magazine").matrix_basis = Matrix.Translation((0, 0, -0.12))
+    wpb("CTRL_Magazine").matrix_basis = Matrix.Translation((0, 0, -out))
+    wkey(f, ("CTRL_Magazine",))
+scene.frame_set(12)
+mag12 = (WPN_PISTOL.matrix_world @ wpb("CTRL_Magazine").matrix).copy()
+for f, drop, tumble in ((14, 0.22, 20), (16, 0.80, 65)):  # gravity: world down, accelerating, tumbling
+    scene.frame_set(f)
+    wpb("CTRL_Magazine")["Follow Left Hand"] = 0.0
+    m = Matrix.Translation((0, 0, -drop)) @ mag12 @ Matrix.Rotation(math.radians(tumble), 4, "X")
+    set_weapon_ctrl_world("CTRL_Magazine", Matrix.LocRotScale(m.translation, m.to_quaternion(), Vector((1, 1, 1))))
+    wkey(f, ("CTRL_Magazine",))
+fallen = wpb("CTRL_Magazine").matrix_basis.copy()
+for f in (17, 20, 21):
+    scene.frame_set(f)
+    wpb("CTRL_Magazine")["Follow Left Hand"] = 0.0
+    wpb("CTRL_Magazine").matrix_basis = fallen
+    wpb("CTRL_Magazine").scale = (0.0, 0.0, 0.0)
     wkey(f, ("CTRL_Magazine",))
 scene.frame_set(22)
 wpb("CTRL_Magazine")["Follow Left Hand"] = 1.0
