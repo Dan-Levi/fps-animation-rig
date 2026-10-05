@@ -1,0 +1,33 @@
+# Blender backups / temporary files
+*.blend1
+*.blend2
+*.blend@
+*.blend~
+*.autosave
+
+# Blender cache / previews
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / editor files
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# Temporary exports / local scratch
+Temp/
+tmp/
+_cache/
+*.tmp
+*.bak
+
+# Keep production source and exports tracked.
+# FBX and BLEND files are handled by Git LFS via .gitattributes.
