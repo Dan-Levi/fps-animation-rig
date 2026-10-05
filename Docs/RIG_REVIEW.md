@@ -50,6 +50,11 @@ No heel/toe roll pivots or roll slider (foot pivots at the ankle); no knee-pop s
 - Sidebar showed "−152.9 m" for what was centimetres: fixed by building the rig in metres (see §2).
 - Added start poses, `Pistol_Draw` test animation, weapon references, centre cross in `FPS_View`, Norwegian step-by-step animator guide and `UNITY_INTEGRATION.md`.
 
+## 8. Weapon rigs (v1.2)
+
+- Verified: bone pivots exact; slide locked to the barrel axis; same rig from parts with FBX-import-like transforms (rot X 90°, scale 0.01) and from an FBX round trip; Update moves pivots, replaces old parts and keeps animation; Follow Left Hand switch without jump; Action sync on switch/duplicate; weapon model FBX unrotated/unscaled with 6 bones + 4 meshes; weapon clip round trip 0 mm; character clips unchanged (66 bones, no weapon).
+- Not verifiable here: a real 3ds Max FBX (test with the first real export).
+
 ## Open – needs the Unity project
 
 1. Import `Exports/Pistol_Draw.fbx` and `Pistol_Idle_Hip.fbx` as Humanoid (*Copy From Other Avatar*) and check the poses.

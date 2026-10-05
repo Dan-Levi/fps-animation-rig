@@ -42,6 +42,7 @@ Eksempel på flyt for UpperBody-laget:
   - Socketens akser er +Z langs løpet og +Y opp, med origo i pistolgrepet. Et våpen-prefab med +Z fram og pivot i grepet trenger da ingen ekstra rotasjon.
   - Verdiene er regnet ut fra riggen og sjekket mot FBX-en. Kontroller én gang med øyet at pistolen sitter i hånden mens `Pistol_Idle_Hip` spilles.
 - **ADS** er et eget klipp der siktet ligger på kameraets akse. I tillegg kan zoom/FOV styres i kode.
+- **Riggede våpen** (slide, magasin osv.) har sin egen prefab og Animator. Se §7.
 
 ## 4. Se opp og ned (pitch)
 
@@ -63,3 +64,39 @@ Ryggraden bøyes i kode etter kamerapitch, f.eks. i LateUpdate eller med en Anim
 
 - Humanoid-retargeting (muskelgrenser, arm stretch) kan flytte hendene noen millimeter. Støttehånden kan da ligge litt utenfor våpenet. Runtime left-hand IK løser det.
 - Blender-markører (`WeaponShow`/`WeaponHide`) blir ikke med i FBX-en og må legges inn som Events manuelt.
+
+## 7. Riggede våpen (slide, avtrekker, magasin)
+
+Hvert riggede våpen eksporteres fra Blender som to slags filer i `Exports/Weapons/<Våpen>/`:
+
+| Fil | Innhold | Import |
+|---|---|---|
+| `WPN_<Våpen>.fbx` | Modell (delene) + våpenskjelett i hvilestilling | Rig: **Generic**, Avatar Definition: **Create From This Model** |
+| `WPN_<Våpen>@<Klipp>.fbx` | Bare våpenets bein, bakt, ett klipp per karakterklipp med samme navn | Rig: **Generic**, Avatar: **Copy From Other Avatar** → avataren fra `WPN_<Våpen>.fbx` |
+
+**Våpenets oppbygning i Unity:**
+```
+WPN_Pistol            (prefab-rot)
+└ WPN_Pistol          (armatur-node, ingen rotasjon/skala)
+  └ Pistol_Root       (grepspunktet = socket-origo)
+    ├ Pistol_Slide    (+ mesh Pistol_Slide)
+    ├ Pistol_Trigger
+    ├ Pistol_Magazine
+    ├ Pistol_Muzzle   (effektpunkt: munningsflamme)
+    └ Pistol_Eject    (effektpunkt: hylser)
+```
+- Legg prefaben som barn av **`WeaponSocket`** (under `mixamorig:RightHand`, se §3) med **posisjon 0 og rotasjon 0**. Våpenets +Z er løpet, +Y er opp, og origo er grepet. Det er de samme aksene som socketen.
+- Prefaben får sin egen **Animator**, med tilstander som heter det samme som karakterklippene: `Pistol_Idle_Hip`, `Pistol_Fire`, `Pistol_Reload` …
+- Spill begge samtidig fra kode, for eksempel:
+  ```csharp
+  characterAnimator.CrossFade("Pistol_Fire", 0.05f, upperBodyLayer);
+  weaponAnimator.CrossFade("Pistol_Fire", 0.05f);
+  ```
+  Klippene er laget på samme tidslinje i Blender, så de holder takt når de startes samtidig.
+- **Events** fra Blender-markørene legges inn som Animation Events. Det går greit på karakterklippet, eller på våpenklippet hvis du vil at våpenet skal styre effektene selv:
+  - `Fire`: munningsflamme, lyd og hylse ved `Pistol_Muzzle`/`Pistol_Eject`.
+  - `MagHide`: skjul magasinet i våpenet, og spawn eventuelt et fysisk magasin som faller.
+  - `MagShow`: vis magasinet, som da sitter i venstre hånd.
+  - `MagIn`: magasinet sitter. Fyll ammunisjonen.
+- Magasinets bevegelse ligger i våpenklippet og er målt i forhold til våpenet. Animasjonen stemmer med venstre hånd i karakterklippet så lenge begge spilles i takt.
+

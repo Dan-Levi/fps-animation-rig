@@ -15,7 +15,11 @@ Fil: `Blender/FPS_Rig.blend`. Laget og testet i Blender 5.0, så bruk 5.0 eller 
 3. I 3D-vinduet trykker du **N** og velger fanen **FPS Rig** til høyre.
 4. Velg riggen og gå til **Pose Mode** (Ctrl+Tab).
 
-Riggen virker fint uten panelet. Panelet gir bare to snarveier: bytte Follow uten hopp, og eksport.
+Riggen virker fint uten panelet. Panelet gir disse snarveiene:
+- **Weapon for this Action:** hvilket våpen klippet bruker. Det vises automatisk.
+- **Make / Update Weapon Rig:** rigger et nytt våpen (kapittel 8).
+- **Switch Follow (keep pose):** bytter Follow uten at noe hopper.
+- **Eksport:** klipp og våpenmodell.
 
 ---
 
@@ -23,19 +27,27 @@ Riggen virker fint uten panelet. Panelet gir bare to snarveier: bytte Follow ute
 
 Hver animasjon er en **Action** i Blender og blir én FBX-fil i Unity. Disse følger med:
 
-| Action | Hva | Våpen å vise | Loop |
+| Action | Hva | Våpen | Loop |
 |---|---|---|---|
 | `Unarmed_Idle` | Står avslappet med armene ned og puster | – | 60 frames |
 | `Guard_Idle` | Knyttnever oppe, lett sving og pust | – | 60 frames |
-| `Melee_Bat_Idle` | Balltre med to hender ved skulderen | `REF_Bat` | 60 frames |
-| `Melee_Crowbar_Idle` | Brekkjern i høyre hånd, venstre hånd avslappet | `REF_Crowbar` | 60 frames |
-| `Pistol_Idle_Hip` | Pistol med to hender i hofteposisjon, sikter mot midten av skjermen | `REF_Pistol` | 60 frames |
-| `Pistol_Draw` | **Testanimasjon:** fra idle trekkes pistolen og ender i `Pistol_Idle_Hip` | `REF_Pistol` | nei, 24 frames |
-| `Example_FPS_Ready` | Rifle klar | `REF_Rifle` | nei |
+| `Melee_Bat_Idle` | Balltre med to hender ved skulderen | Bat | 60 frames |
+| `Melee_Crowbar_Idle` | Brekkjern i høyre hånd, venstre hånd avslappet | Crowbar | 60 frames |
+| `Pistol_Idle_Hip` | Pistol med to hender i hofteposisjon, sikter mot midten av skjermen | Pistol | 60 frames |
+| `Pistol_Draw` | Fra idle trekkes pistolen, og klippet ender i `Pistol_Idle_Hip` | Pistol | nei, 24 frames |
+| `Pistol_Fire` | Skudd fra hofta: avtrekker, sliden går bak og fram, rekyl, lite kamerarykk | Pistol (animert) | nei, 12 frames |
+| `Pistol_Reload` | Magasinet ut, nytt magasin fra venstre hofte, inn, tilbake i grepet | Pistol (animert) | nei, 52 frames |
+| `Example_FPS_Ready` | Rifle klar | Rifle | nei |
 
 ![Pistol_Draw](images/pistol_draw.png)
+![Pistol_Fire](images/pistol_fire.png)
+![Pistol_Reload](images/pistol_reload.png)
 
-**Vise våpen:** I Outliner (øverst til høyre) åpner du samlingen **Weapon References** og klikker øye-ikonet på våpenet du vil se. Ha bare ett synlig om gangen. Våpenene eksporteres aldri; de er bare referanser i Blender.
+**Våpen vises automatisk.** Hver Action husker hvilket våpen den bruker, og velger du en Action, vises riktig våpen.
+- **Bytte våpen for en Action:** FPS Rig-panelet → **Weapon for this Action**.
+- **Uten panelet:** i Outliner åpner du samlingen **Weapons** og klikker øye-ikonet på våpenets samling.
+- **Riggede våpen (`WPN_`):** delene kan animeres (slide, avtrekker, magasin), og våpenet får sitt eget klipp i Unity. Pistol og hagle følger med som eksempler.
+- **Enkle referanser (`REF_`):** står stille i hånden. Det gjelder rifle, balltre, brekkjern og nøkkel.
 
 ---
 
@@ -120,14 +132,16 @@ Startposene har sliderne ferdig nøklet, så hver Action husker sine egne verdie
 Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som det festes til høyre hånd i Unity. Det du ser i Blender, er det du får i spillet.
 
 - **`WPN_Attach`** (tom med piler) er festepunktet. Origo er grepspunktet, Z-pila peker langs løpet (eller den «farlige enden»), og Y-pila peker opp.
-- **Ditt eget våpen:**
-  1. File → Import (FBX/OBJ).
-  2. Velg våpenet, Shift-klikk `WPN_Attach`, og trykk **Ctrl+P → Object (Keep Transform)**.
-  3. Flytt og roter *våpenet* (ikke tomen) til grepet ligger i origo for `WPN_Attach` og løpet peker langs Z-pila.
-  4. Skjul plassholderen.
-- **Animere:** flytt og roter `CTRL_Weapon`. Høyre hånd følger, og våpenet følger høyre hånd.
+- **Animere våpenet i hånden:** flytt og roter `CTRL_Weapon`. Høyre hånd følger, og våpenet følger høyre hånd.
+- **Animere delene** (slide, avtrekker, magasin) på et rigget våpen: se kapittel 8.4. Delene animeres i **samme Action** som kroppen.
 - **Høyre Follow Weapon = 0:** animer `CTRL_Hand_IK.R` direkte (fint for nærkampslag). Våpenet følger fortsatt hånden, men `CTRL_Weapon` gjør da ingenting.
-- **Uten våpen:** Follow Weapon = 0 på begge hender, og skjul våpenet.
+- **Uten våpen:** sett Weapon for this Action = Unarmed og Follow Weapon = 0 på begge hender.
+- **Nytt våpen med bevegelige deler:** kapittel 8.
+- **Nytt våpen uten bevegelige deler** (balltre, nøkkel osv.):
+  1. Importer det.
+  2. Velg våpenet, Shift-klikk `WPN_Attach`, og trykk **Ctrl+P → Object (Keep Transform)**.
+  3. Flytt og roter *våpenet* til grepet ligger i origo og løpet peker langs Z-pila.
+  4. Legg det i en egen samling `REF_<Navn>` under **Weapons**, så dukker det opp i våpenmenyen.
 - Ikke støttet i v1: å gi våpenet over til venstre hånd.
 
 ---
@@ -154,12 +168,20 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
 - **Hofte:** løpet skal peke mot korset i `FPS_View`, og våpenet synes nede til høyre.
 - **ADS:** flytt `CTRL_Weapon` til bakre og fremre sikte (eller kikkerten) ligger rett over korset i `FPS_View`. Kameraet står stille, så du flytter våpenet til øyet og ikke øyet til våpenet.
 
-### Skudd og rekyl
-- 1–2 frames: våpenet sparkes litt bakover og opp med `CTRL_Weapon`. Deretter 6–10 frames tilbake til utgangsposen.
-- Valgfritt: en liten rotasjon på `CTRL_Camera` (1–2°) gir kamerarykk. Den legges oppå spillerens kamera i Unity.
+### Skudd og rekyl (se `Pistol_Fire`)
+- **Frame 1–2:** avtrekkeren trykkes (`CTRL_Trigger`, roter X), og en markør `Fire` settes på skuddframen.
+- **Sliden** (`CTRL_Slide`, flytt langs løpet) går bak på skuddframen og fram 2 frames senere.
+- **Rekyl:** våpenet sparkes litt bakover og opp med `CTRL_Weapon`, og går deretter 6–10 frames tilbake til utgangsposen.
+- **Valgfritt kamerarykk:** en liten rotasjon på `CTRL_Camera` (1–2°). Den legges oppå spillerens kamera i Unity.
 
-### Lading
-- Når venstre hånd slipper våpenet: **Switch Follow** (1 → 0). Når den griper igjen: **Switch Follow** (0 → 1).
+### Lading (se `Pistol_Reload`)
+1. Venstre hånd slipper våpenet: velg `CTRL_Hand_IK.L` og trykk **Switch Follow** (1 → 0).
+2. Magasinet (`CTRL_Magazine`) glir ut av våpenet. Sett markørene `MagOut` når det løsner og `MagHide` når det skal forsvinne (Unity skjuler det eller slipper et fysisk magasin).
+3. Hånden henter et nytt magasin ved hofta. Der velger du `CTRL_Magazine` og setter **Follow Left Hand** = 1, og plasserer magasinet i hånden. Sett markøren `MagShow`.
+4. Hånden fører magasinet inn. Når det sitter, trykker du **Switch Follow** på `CTRL_Magazine` (1 → 0), så det blir sittende i våpenet. Sett markøren `MagIn`.
+5. Hånden tilbake på grepet: **Switch Follow** på `CTRL_Hand_IK.L` (0 → 1).
+
+Samme oppskrift gjelder hagle (Shell i stedet for Magazine, én gang per patron), SMG og rifle.
 
 ### Nærkamp (balltre eller brekkjern)
 - Balltre: begge hender følger. Animer `CTRL_Weapon` gjennom slaget og vri overkroppen (`CTRL_Torso`, `CTRL_Chest`).
@@ -193,9 +215,11 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
 Dette skjer når du trykker:
 1. Den aktive Actionen spilles av frame for frame i Action-ens frame-område, med 30 fps.
 2. Mixamo-skjelettet (65 bein) og `AnimCamera` bakes, altså hver frame lagres som ren beinbevegelse.
-3. Alt det andre blir igjen i Blender: kontroller, våpen, mesh og kameraer.
+3. Alt det andre blir igjen i Blender: kontroller, mesh og kameraer.
 4. Resultatet skrives til **`Exports/<Action-navn>.fbx`**: **kun skjelett, uten skin**, akkurat som «Without Skin» fra Mixamo.
-5. **Export all Actions** gjør det samme for alle Actions i filen og lager én FBX per Action.
+5. **Bruker Actionen et rigget våpen**, lages også et våpenklipp: **`Exports/Weapons/<Våpen>/WPN_<Våpen>@<Action>.fbx`**. Det inneholder bare våpenets bein (slide, magasin osv.), målt i forhold til våpenets grep.
+6. **Export all Actions** gjør det samme for alle Actions i filen.
+7. **Export Weapon Model** (i Weapon-boksen) lager **`Exports/Weapons/<Våpen>/WPN_<Våpen>.fbx`**: våpenets deler og bein i hvilestilling, til prefaben i Unity. Kjør den på nytt når modellen endres.
 
 **I Unity** gjør du det samme som med Mixamo-animasjoner:
 1. Dra FBX-filen inn i prosjektet.
@@ -203,11 +227,80 @@ Dette skjer når du trykker:
 3. Under **Animation** heter klippet det samme som Actionen. Huk av **Loop Time** for idle-klippene.
 4. Markøren `WeaponShow`/`WeaponHide` blir ikke med automatisk. Legg den inn som en **Animation Event** på samme frame (se `Docs/UNITY_INTEGRATION.md`).
 
+**Våpen i Unity:** importeres som **Generic**, ikke Humanoid. Se `Docs/UNITY_INTEGRATION.md` §7.
+
 **Manuell eksport** (uten panelet): velg bare riggen og gå til File → Export → FBX med disse innstillingene: Selected Objects, Object Types = Armature, **Apply Scalings = FBX Units Scale**, Forward −Z, Up Y, **Only Deform Bones** på, **Add Leaf Bones** av, Bake Animation på, NLA Strips av, All Actions av, Simplify 0.
 
 ---
 
-## 8. Begrensninger og tips
+## 8. Nytt våpen: modellere, rigge, animere
+
+Dette virker for alle våpentyper: pistol, SMG, rifle, pumpehagle, knekkhagle, revolver, boltrifle. Du modellerer bare delene, gjerne i 3ds Max, og riggen lages i Blender med én knapp.
+
+### 8.1 Modellere (3ds Max eller Blender)
+
+| Regel | Hvorfor |
+|---|---|
+| Grepspunktet (der høyre håndflate sitter på grepet) i **origo** | Da havner våpenet riktig i hånden |
+| Løpet peker mot **−Y**, altså mot deg i Front-visning. Opp = +Z | Max og Blender har samme Front |
+| **Hver bevegelig del er et eget objekt** | Hver del får sitt eget bein |
+| **Pivot (origo) i dreie- eller glidepunktet**, f.eks. avtrekkerens aksling eller magasinets topp | Delen roterer eller glir rundt riktig punkt |
+| Pivoten rettet etter verden (standard) | Glidedeler glir da langs løpet, og roterende deler roterer rundt sideaksen |
+| Navn: **`<Våpen>_<Del>`**, f.eks. `Pistol_Frame`, `Pistol_Slide`, `Pistol_Magazine` | Våpennavnet og bevegelsestypen hentes fra navnet |
+| Hoveddelen heter **`_Frame`**, **`_Body`** eller **`_Receiver`** | Den er fast og bærer resten |
+| Valgfritt: tomme objekter (Max: *Dummy/Point*) **`<Våpen>_Muzzle`** og **`<Våpen>_Eject`** | Festepunkter for munningsflamme og hylser i Unity |
+| Valgfritt hierarki: lenk en del til delen den sitter på (Max: *Link*), f.eks. `Rifle_BoltHandle` → `Rifle_Bolt` | Riggen bruker samme hierarki |
+
+**Delnavn som gir bevegelse automatisk** (kan endres etterpå):
+
+| Bevegelse | Navn som inneholder | Kontrollen kan |
+|---|---|---|
+| Glir | Slide, Bolt, Pump, Forend, ChargingHandle, Carrier | flyttes langs løpet |
+| Roterer | Trigger, Hammer, Safety, Selector, Lever, Cylinder, Hinge, Break, Stock, Sight, Latch, Release, BoltHandle | roteres rundt sideaksen (X) |
+| Løs del | Magazine, Mag, Shell, Clip, Grenade, Round, Ammo | flyttes fritt og følge venstre hånd (**Follow Left Hand**) |
+| Fri | alt annet | flyttes og roteres fritt |
+
+**Roterer en del rundt en annen akse** (revolvertrommel, sammenleggbar kolbe, knekkløp)? Roter pivoten slik at pivotens X er dreieaksen. Eller velg aksen i panelet etterpå (8.3).
+
+**Eksport fra 3ds Max:**
+1. Velg delene.
+2. Kjør **Reset XForm** (Utilities) på dem, og deretter Convert to Editable Poly.
+3. Velg **File → Export Selected → FBX**: enhet **Centimeters**, **Y-up** (Max sin standard). Ingen animasjon, kamera eller lys.
+
+Det trengs ingen bein i Max.
+
+### 8.2 Rigge (Blender)
+1. I `FPS_Rig.blend`: **File → Import → FBX**. Delene havner i origo.
+2. Velg **alle** delene til våpenet, også Muzzle og Eject.
+3. FPS Rig-panelet: trykk **Make / Update Weapon Rig**.
+4. Ferdig. Du får `WPN_<Våpen>`:
+   - et bein per del,
+   - en farget kontroll-boks rundt hver bevegelig del: `CTRL_Slide`, `CTRL_Trigger`, `CTRL_Magazine` …,
+   - våpenet festet i høyre hånd,
+   - en egen samling under **Weapons**.
+
+**Ny versjon av modellen** (endret i Max): importer på nytt, velg delene og trykk **Make / Update Weapon Rig** igjen.
+- Beina flyttes til de nye pivotene, og de gamle delene byttes ut.
+- **Animasjonene dine beholdes**, fordi delene har samme navn.
+
+### 8.3 Justere bevegelse
+- Velg en våpenkontroll i Pose Mode. Panelet viser **Motion: …**. Trykk på den for å velge type (Slide / Rotate / Detachable / Free) og akse.
+- Det settes som vanlige lås-ikoner i N → Item, så du kan også slå dem av og på der.
+
+### 8.4 Animere våpenet sammen med kroppen
+1. Velg en Action, og sett **Weapon for this Action** til våpenet (f.eks. Pistol).
+2. Velg både karakteren og våpenriggen: klikk `Armature` og Ctrl-klikk `WPN_Pistol` i Outliner. Gå så til **Pose Mode** (Ctrl+Tab). Nå kan du ta tak i kontrollene på begge.
+3. Animer kropp og våpendeler på samme tidslinje. Alt havner i **samme Action**: våpenet har sin egen «slot» i den.
+4. **Dope Sheet** (modus *Dope Sheet*) viser nøklene for begge. Action Editor viser bare det aktive objektet.
+5. Dupliserer du Actionen, får våpenet automatisk kopien.
+
+### 8.5 Eksportere
+- **Export this Action:** karakterklippet og våpenklippet.
+- **Export Weapon Model:** våpenmodellen til prefaben, én gang og ved modellendringer.
+
+---
+
+## 9. Begrensninger og tips
 
 - **Foten roterer rundt ankelen.** Det finnes ikke hæl- eller tåpivot. For å løfte hælen roterer du foten og flytter den ned. For tåhev bøyer du også `CTRL_Toe`.
 - **Helt rette bein** kan få knærne til å «poppe». Behold en liten bøy.

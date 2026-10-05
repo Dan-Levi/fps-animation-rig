@@ -213,6 +213,18 @@ sock.matrix = Matrix.LocRotScale(INV @ socket_world.translation, (INV3 @ socket_
                                  Vector((1, 1, 1)))
 sock.parent = rh
 sock.use_deform = False
+# Left-hand prop socket (mirror of the right-hand grip): magazines/props held in the left hand follow it
+lh = eb[P + "LeftHand"]
+lh_world = MW @ lh.matrix
+lh_world = Matrix.LocRotScale(lh_world.translation, lh_world.to_quaternion(), Vector((1, 1, 1)))
+_mirror = Matrix.Diagonal((-1.0, 1.0, 1.0, 1.0))
+prop_world = lh_world @ (_mirror @ socket_in_hand.inverted() @ _mirror).inverted()
+prop_l = eb.new("PROP_Hand.L")
+prop_l.length = 0.06
+prop_l.matrix = Matrix.LocRotScale(INV @ prop_world.translation, (INV3 @ prop_world.to_3x3()).normalized().to_quaternion(),
+                                   Vector((1, 1, 1)))
+prop_l.parent = lh
+prop_l.use_deform = False
 grip_w = socket_world.translation
 barrel_w, up_w = socket_world.to_3x3().col[2], socket_world.to_3x3().col[1]
 new("MCH_Space_Weapon", grip_w, barrel_w, up_w, 30)
@@ -289,7 +301,7 @@ def ctrl(name, shape, col, collection, rot_mode="QUATERNION", lock_loc=False, lo
 for n in DEFORM + ["AnimCamera"]:
     C_DEF.assign(arm.data.bones[n])
 for b in arm.data.bones:
-    if b.name.startswith("MCH_") or b.name == "WPN_Socket":
+    if b.name.startswith("MCH_") or b.name in ("WPN_Socket", "PROP_Hand.L"):
         C_MCH.assign(b)
 
 ctrl("CTRL_Root", "root", COL_CENTER, C_MAIN)
@@ -479,45 +491,94 @@ attach.empty_display_type, attach.empty_display_size = "ARROWS", 0.08
 scene.collection.objects.link(attach)
 parent_to_bone(attach, "WPN_Socket", Matrix.LocRotScale(sm.translation, sm.to_quaternion(), Vector((1, 1, 1))))
 
-ref_col = bpy.data.collections.new("Weapon References")
-scene.collection.children.link(ref_col)
+weapons_col = bpy.data.collections.new(tools.WEAPONS_COLLECTION)
+scene.collection.children.link(weapons_col)
 
 
-def blocks(name, parts, color):
-    """Placeholder from boxes in socket space: (center (x, up, forward), size (x, up, forward)) in metres."""
+def box_mesh(name, parts, origin=(0, 0, 0)):
+    """Mesh from boxes (center, size) in metres, vertices relative to origin."""
+    ox, oy, oz = origin
     verts, faces = [], []
     for (cx, cy, cz), (sx, sy, sz) in parts:
         o = len(verts)
         for dx in (-0.5, 0.5):
             for dy in (-0.5, 0.5):
                 for dz in (-0.5, 0.5):
-                    verts.append((cx + dx * sx, cy + dy * sy, cz + dz * sz))
+                    verts.append((cx + dx * sx - ox, cy + dy * sy - oy, cz + dz * sz - oz))
         faces += [(o + a, o + b, o + c, o + d) for a, b, c, d in
                   ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))]
     me = bpy.data.meshes.new(name)
     me.from_pydata(verts, [], faces)
-    ob = bpy.data.objects.new(name, me)
-    ref_col.objects.link(ob)
+    return me
+
+
+def blocks(name, parts, color):
+    """Unrigged placeholder in socket space (center (x, up, forward), size), in its own Weapons/REF_ collection."""
+    col = bpy.data.collections.new(name)
+    weapons_col.children.link(col)
+    ob = bpy.data.objects.new(name, box_mesh(name, parts))
+    col.objects.link(ob)
     ob.color = color
     ob.parent = attach
     ob.hide_select = True
     return ob
 
 
-ORANGE, GREY, BROWN, STEEL, GOLD = (0.9, 0.45, 0.1, 1), (0.25, 0.25, 0.28, 1), (0.55, 0.35, 0.2, 1), \
-    (0.45, 0.5, 0.55, 1), (0.85, 0.7, 0.2, 1)
+def model_part(name, parts, origin, color, parent=None):
+    """A weapon part modelled like in 3ds Max: modelling space (barrel -Y, up +Z, grip at the origin),
+    object origin = the part's pivot. parts: (center (x, y, z), size) in metres."""
+    ob = bpy.data.objects.new(name, box_mesh(name, parts, origin))
+    scene.collection.objects.link(ob)
+    ob.location = origin
+    ob.color = color
+    if parent:
+        ob.parent = parent
+        ob.matrix_parent_inverse = parent.matrix_world.inverted()
+    return ob
+
+
+def model_empty(name, location):
+    ob = bpy.data.objects.new(name, None)
+    scene.collection.objects.link(ob)
+    ob.location = location
+    return ob
+
+
+ORANGE, GREY, DARK, BROWN, STEEL, GOLD = (0.9, 0.45, 0.1, 1), (0.25, 0.25, 0.28, 1), (0.12, 0.12, 0.14, 1), \
+    (0.55, 0.35, 0.2, 1), (0.45, 0.5, 0.55, 1), (0.85, 0.7, 0.2, 1)
+
+# Rigged placeholder pistol (Frame, Slide, Trigger, Magazine + Muzzle/Eject), built with the panel's tool
+PISTOL_PARTS = [
+    model_part("Pistol_Frame", [((0, 0.005, -0.005), (0.028, 0.045, 0.11)), ((0, -0.075, 0.035), (0.026, 0.13, 0.025)),
+                                ((0, -0.045, 0.006), (0.008, 0.045, 0.006))], (0, 0, 0), GREY),
+    model_part("Pistol_Slide", [((0, -0.06, 0.065), (0.03, 0.19, 0.035)), ((0, -0.145, 0.086), (0.004, 0.006, 0.007)),
+                                ((0, 0.025, 0.086), (0.02, 0.006, 0.007))], (0, -0.06, 0.065), DARK),
+    model_part("Pistol_Trigger", [((0, -0.038, 0.013), (0.006, 0.008, 0.024))], (0, -0.036, 0.026), DARK),
+    model_part("Pistol_Magazine", [((0, 0.008, -0.012), (0.022, 0.034, 0.11)), ((0, 0.008, -0.07), (0.026, 0.04, 0.008))],
+               (0, 0.008, 0.04), STEEL),
+    model_empty("Pistol_Muzzle", (0, -0.16, 0.065)),
+    model_empty("Pistol_Eject", (0.016, -0.035, 0.075)),
+]
+WPN_PISTOL = tools.make_weapon_rig(PISTOL_PARTS, arm, attach)
+
+# Rigged placeholder shotgun (Receiver, Pump, Trigger, Shell) - same tool, different weapon type
+SHOTGUN_PARTS = [
+    model_part("Shotgun_Receiver", [((0, -0.08, 0.06), (0.045, 0.26, 0.07)), ((0, -0.48, 0.08), (0.024, 0.55, 0.024)),
+                                    ((0, -0.40, 0.045), (0.022, 0.40, 0.022)), ((0, 0.20, 0.03), (0.04, 0.30, 0.09)),
+                                    ((0, 0.0, -0.01), (0.03, 0.04, 0.10))], (0, 0, 0), BROWN),
+    model_part("Shotgun_Pump", [((0, -0.32, 0.045), (0.05, 0.16, 0.05))], (0, -0.32, 0.045), DARK),
+    model_part("Shotgun_Trigger", [((0, -0.04, 0.015), (0.006, 0.008, 0.024))], (0, -0.038, 0.028), DARK),
+    model_part("Shotgun_Shell", [((0, -0.06, 0.02), (0.02, 0.065, 0.02))], (0, -0.06, 0.02), (0.7, 0.1, 0.1, 1)),
+    model_empty("Shotgun_Muzzle", (0, -0.755, 0.08)),
+    model_empty("Shotgun_Eject", (0.025, -0.08, 0.07)),
+]
+WPN_SHOTGUN = tools.make_weapon_rig(SHOTGUN_PARTS, arm, attach)
+
 REFS = {
     "Rifle": blocks("REF_Rifle", [
         ((0, 0.06, 0.10), (0.04, 0.07, 0.30)), ((0, 0.075, 0.42), (0.02, 0.02, 0.36)),
         ((0, 0.05, -0.17), (0.035, 0.08, 0.24)), ((0, -0.01, 0.0), (0.03, 0.10, 0.04)),
         ((0, 0.0, 0.08), (0.025, 0.09, 0.04)), ((0, 0.035, 0.26), (0.035, 0.045, 0.14))], ORANGE),
-    "Pistol": blocks("REF_Pistol", [
-        ((0, 0.065, 0.06), (0.03, 0.035, 0.19)), ((0, -0.005, -0.005), (0.028, 0.11, 0.045)),
-        ((0, 0.025, 0.04), (0.012, 0.012, 0.05))], GREY),
-    "Shotgun": blocks("REF_Shotgun", [
-        ((0, 0.06, 0.08), (0.045, 0.07, 0.26)), ((0, 0.08, 0.48), (0.024, 0.024, 0.55)),
-        ((0, 0.045, 0.40), (0.022, 0.022, 0.40)), ((0, 0.045, 0.32), (0.05, 0.05, 0.16)),
-        ((0, 0.03, -0.20), (0.04, 0.09, 0.30)), ((0, -0.01, 0.0), (0.03, 0.10, 0.04))], BROWN),
     "Bat": blocks("REF_Bat", [  # handle runs along the grip axis (socket Y)
         ((0, -0.11, 0), (0.05, 0.02, 0.05)), ((0, 0.05, 0), (0.03, 0.30, 0.03)),
         ((0, 0.40, 0), (0.05, 0.40, 0.05)), ((0, 0.62, 0), (0.065, 0.12, 0.065))], BROWN),
@@ -530,9 +591,7 @@ REFS = {
 
 
 def show_ref(which=None):
-    for k, ob in REFS.items():
-        ob.hide_set(k != which)
-        ob.hide_render = k != which
+    tools.apply_weapon(which or "")
 
 
 # ---------------------------------------------------------------- final rest check
@@ -833,6 +892,156 @@ print("draw end: left hand on pistol error %.4f m" % (
     (world_of("CTRL_Hand_IK.L").translation - (world_of("WPN_Socket") @ Matrix.Translation(Vector(PISTOL_SUPPORT))
                                                 @ HAND_IN_SOCKET_L).translation).length))
 
+# ---------------------------------------------------------------- weapon animation examples (Pistol)
+# Character + pistol parts in ONE Action: the pistol rig gets its own slot (tools.ensure_weapon_action).
+W_CTRLS = ("CTRL_Slide", "CTRL_Trigger", "CTRL_Magazine")
+
+
+def wpb(n):
+    return WPN_PISTOL.pose.bones[n]
+
+
+def wreset():
+    for n in W_CTRLS:
+        wpb(n).matrix_basis = Matrix()
+    wpb("CTRL_Magazine")["Follow Left Hand"] = 0.0
+    WPN_PISTOL.update_tag()
+
+
+def wkey(f, names=W_CTRLS):
+    for n in names:
+        tools.key_control(WPN_PISTOL, n, f)
+
+
+def tilt(aim, up, deg):
+    """Rotate barrel + up direction upward (around the weapon's lateral axis)."""
+    r = Matrix.Rotation(math.radians(deg), 3, aim.cross(up).normalized())
+    return (r @ aim).normalized(), (r @ up).normalized()
+
+
+def pistol_root_world():
+    upd()
+    return WPN_PISTOL.matrix_world @ WPN_PISTOL.pose.bones["Pistol_Root"].matrix  # modelling frame -> world
+
+
+def set_weapon_ctrl_world(name, world):
+    WPN_PISTOL.update_tag()  # re-evaluate drivers after a slider change
+    upd()
+    m = WPN_PISTOL.matrix_world.inverted() @ world
+    wpb(name).matrix = Matrix.LocRotScale(m.translation, m.to_quaternion(), Vector((1, 1, 1)))
+    upd()
+
+
+# Pistol_Fire: hip shot - trigger, slide cycle, recoil in the hands, small camera kick
+act = new_action("Pistol_Fire", 1, 12)
+tools.set_action_weapon(act, "Pistol")
+act.pose_markers.new("Fire").frame = 2
+FIRE = {1: (0, 0, 0, 0), 2: (1.0, 1.0, 0.7, 1.0), 3: (1.0, 1.0, 1.0, 0.7), 4: (0.0, 0.6, 0.85, 0.45),
+        5: (0.0, 0.0, 0.6, 0.25), 8: (0.0, 0.0, 0.2, 0.08), 12: (0, 0, 0, 0)}  # slide, trigger, kick, camera (0..1)
+for f, (sl, tr, kick, cam) in FIRE.items():
+    scene.frame_set(f)
+    reset_pose()
+    wreset()
+    melee_body(0.0, lean=3)
+    aim, up = tilt(PISTOL_AIM, Vector((0, 0, 1)), 8 * kick)
+    place_weapon(PISTOL_HIP - PISTOL_AIM * 0.035 * kick + Vector((0, 0, 0.012 * kick)), aim, up)
+    left_hand_on_socket(PISTOL_SUPPORT)
+    set_world("CTRL_Elbow_Pole.R", (-0.40, 0.00, 0.95))
+    set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
+    pistol_fingers()
+    rot("CTRL_Camera", -1.5 * cam)  # camera control: -X pitches up
+    wpb("CTRL_Slide").location = (0, 0.026 * sl, 0)  # slide back along the barrel axis
+    wpb("CTRL_Trigger").rotation_euler = (math.radians(22 * tr), 0, 0)
+    key_all(f)
+    wkey(f)
+
+# Pistol_Reload: magazine out, new magazine from the left hip, inserted, back to two-handed grip
+act = new_action("Pistol_Reload", 1, 52)
+tools.set_action_weapon(act, "Pistol")
+for name, frame_ in (("MagOut", 8), ("MagHide", 12), ("MagShow", 22), ("MagIn", 34)):
+    act.pose_markers.new(name).frame = frame_
+R_POS = Vector((-0.07, -0.33, 1.34))
+R_AIM = Vector((0.18, -0.9, 0.40)).normalized()
+R_UP = Vector((0.45, 0.05, 0.9))
+MAG_REST = Matrix.Translation((0, 0.008, 0.04))                       # magazine pivot (modelling frame)
+_yh = Vector((-0.3, -0.95, 0.05)).normalized()
+_zh = Vector((0, 0, 1))
+_base = Vector((0, 0.008, -0.074))                                     # magazine base plate
+HAND_INSERT = Matrix.Translation(_base - _yh * 0.06 - _zh * 0.03) @ frame(_yh, _zh).to_4x4()  # palm under the mag
+MAG_IN_HAND = HAND_INSERT.inverted() @ MAG_REST                        # magazine relative to the left hand
+for f in (1, 6, 8, 12, 20, 22, 26, 30, 34, 38, 44, 48, 52):
+    scene.frame_set(f)
+    reset_pose()
+    wreset()
+    melee_body(0.0, lean=3 if f in (1, 48, 52) else 5)
+    if f in (1, 48, 52):
+        place_weapon(PISTOL_HIP, PISTOL_AIM, (0, 0, 1))
+    else:
+        place_weapon(R_POS, R_AIM, R_UP)
+    set_world("CTRL_Elbow_Pole.R", (-0.40, 0.00, 0.95))
+    set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
+    left_hand_on_socket(PISTOL_SUPPORT)  # overridden below where the left hand is free
+    pistol_fingers()
+    if f == 8:
+        fingers("R", 70, 65, -40)  # thumb presses the magazine release
+    key_all(f)
+    wkey(f)
+# left hand lets go at f8 and works in world space until it is back on the grip at f44
+tools.switch_follow(arm, "CTRL_Hand_IK.L", 0.0, frame=8)
+LEFT_FREE = {
+    12: ((0.12, -0.25, 1.20), (0.0, -0.6, -0.8), (-1, 0.1, 0), (40, 20)),
+    20: ((0.215, -0.02, 1.02), (0.0, -0.25, -1), (-1, 0.1, 0), (60, 35)),  # magazine pouch, left hip
+    22: ((0.20, -0.06, 1.06), (-0.1, -0.5, -0.85), (-1, 0.1, 0), (60, 35)),  # leaving the pouch with the new mag
+    26: ((0.08, -0.28, 1.20), (-0.3, -0.9, 0.3), (0, 0, 1), (60, 35)),
+}
+for f in (12, 20, 22, 26, 30, 34, 38):
+    scene.frame_set(f)
+    pbs["CTRL_Hand_IK.L"]["Follow Weapon"] = 0.0
+    set_world("CTRL_Elbow_Pole.L", (0.30, 0.20, 1.00))
+    if f in LEFT_FREE:
+        pos, y, z, (g, t) = LEFT_FREE[f]
+        set_world("CTRL_Hand_IK.L", pos, y, z)
+    else:  # f30: magazine 6 cm below the grip, f34/f38: pushed in
+        below = Matrix.Translation((0, 0, -0.06)) if f == 30 else Matrix()
+        set_world_matrix("CTRL_Hand_IK.L", pistol_root_world() @ below @ HAND_INSERT)
+        g, t = 60, 35
+    fingers("L", g, t)
+    for n in ("CTRL_Hand_IK.L", "CTRL_Elbow_Pole.L", "CTRL_Grip.L", "CTRL_Thumb.L", "CTRL_Index.L"):
+        tools.key_control(arm, n, f)
+# back on the grip at f44 (placed in world space first), then Follow Weapon = 1 without a jump
+scene.frame_set(44)
+pbs["CTRL_Hand_IK.L"]["Follow Weapon"] = 0.0
+set_world("CTRL_Elbow_Pole.L", (0.40, -0.10, 0.95))
+left_hand_on_socket(PISTOL_SUPPORT)
+pistol_fingers()
+for n in ("CTRL_Hand_IK.L", "CTRL_Elbow_Pole.L", "CTRL_Grip.L", "CTRL_Thumb.L", "CTRL_Index.L"):
+    tools.key_control(arm, n, 44)
+tools.switch_follow(arm, "CTRL_Hand_IK.L", 1.0, frame=44)
+for f in (48, 52):
+    scene.frame_set(f)
+    pbs["CTRL_Hand_IK.L"]["Follow Weapon"] = 1.0
+    left_hand_on_socket(PISTOL_SUPPORT)
+    tools.key_control(arm, "CTRL_Hand_IK.L", f)
+# magazine: drops out (f8-12), held out of sight, appears in the left hand (f22), inserted (f34)
+for f in (12, 20, 21):
+    scene.frame_set(f)
+    wpb("CTRL_Magazine")["Follow Left Hand"] = 0.0
+    wpb("CTRL_Magazine").matrix_basis = Matrix.Translation((0, 0, -0.12))
+    wkey(f, ("CTRL_Magazine",))
+scene.frame_set(22)
+wpb("CTRL_Magazine")["Follow Left Hand"] = 1.0
+set_weapon_ctrl_world("CTRL_Magazine", world_of(P + "LeftHand") @ MAG_IN_HAND)
+mag_in_hand = wpb("CTRL_Magazine").matrix_basis.copy()
+wkey(22, ("CTRL_Magazine",))
+for f in (26, 30, 34):
+    scene.frame_set(f)
+    wpb("CTRL_Magazine")["Follow Left Hand"] = 1.0
+    wpb("CTRL_Magazine").matrix_basis = mag_in_hand
+    wkey(f, ("CTRL_Magazine",))
+tools.switch_follow(WPN_PISTOL, "CTRL_Magazine", 0.0, frame=34)  # seated: back in the weapon, no jump
+scene.frame_set(34)
+print("reload: magazine seated offset %.4f m" % wpb("CTRL_Magazine").matrix_basis.translation.length)
+
 # Example_FPS_Ready: rifle ready pose (kept from v1)
 new_action("Example_FPS_Ready", 1, 30)
 for f in (1, 30):
@@ -852,11 +1061,17 @@ for f in (1, 30):
     fingers("L", 45, 15)
     key_all(f)
 
+# Which weapon each Action uses (the FPS Rig panel shows it and shares the Action with a rigged weapon)
+for name, w in {"Unarmed_Idle": "", "Guard_Idle": "", "Melee_Bat_Idle": "Bat", "Melee_Crowbar_Idle": "Crowbar",
+                "Pistol_Idle_Hip": "Pistol", "Pistol_Draw": "Pistol", "Pistol_Fire": "Pistol",
+                "Pistol_Reload": "Pistol", "Example_FPS_Ready": "Rifle"}.items():
+    bpy.data.actions[name]["Weapon"] = w
+
 # Open on the neutral idle, no weapon shown
 arm.animation_data.action = bpy.data.actions["Unarmed_Idle"]
 scene.frame_start, scene.frame_end = 1, 60
 scene.frame_set(1)
-show_ref(None)
+tools.apply_weapon("", arm.animation_data.action)
 
 # FPS_View sits inside the head: hide back faces so the inside of the head is not drawn
 for mat in mesh_obj.data.materials:
