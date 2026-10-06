@@ -32,7 +32,19 @@ Verified in the exported FBX: rest rotation identity relative to the character r
 | Curl (X) | same direction on both hands; 3 joints equal; additive with grip and detail controls (no double transform – verified 60+20 = 80° etc.) |
 | Spread | **was misleading:** per-finger Z shifts the finger sideways and is mirrored between hands. **Added** Grip Z fan spread (index/middle toward thumb, ring/pinky away; +Z opens on both hands). Per-finger Z documented as sideways/visual |
 | Thumb | **was misdocumented:** X = curl toward/across the palm (opposition direction), Z = spread toward/away from the index. **Fixed** unnatural "thumb points down" fist: metacarpal now gets half the curl (30/60/60) |
-| Extremes | Grip > ~80° pushes fingertips into the palm (low-poly mesh, equal joint distribution) – documented |
+| Extremes | Grip > ~85° pushes fingertips into the palm (low-poly mesh) – documented |
+
+### 4b. Hand closing review (v1.4)
+
+![Fist before/after](images/hand_fix.png)
+
+| Check | Result |
+|---|---|
+| Finger bone roll | **OK** – local X is the hinge (⊥ palm normal and finger) within 0.1–0.3° on all fingers, both hands; +X curls toward the palm |
+| Joint placement | **OK** – every joint sits inside the finger, centred between back and palm side; along the finger the joints lie between the (one-per-segment) edge loops with blended weights. Moving bones would change the Mixamo rest pose / Unity Avatar, so they stay |
+| **Thumb** | **Fixed.** Mixamo gives the thumb the same roll as the fingers, so thumb X folded it down and back under the palm (X 45°: tip 12 cm toward the wrist, only 4.7 cm across). The thumb controls now have a roll aimed across the palm (target between the middle/ring knuckles, 2 cm palm-side); `MCH_Thumb1–3` (deform roll, children of the controls) hand the rotation to the untouched deform bones. X 45° now moves the tip 12 cm across the palm. Thumb Z is now the same on both hands (+ away from the palm, − wraps around a handle) |
+| **Grip distribution** | **Changed** from 1/1/1 to 1/1/0.7 (knuckle / middle / tip joint): Grip 85 = 85/85/60°, fewer fingertips in the palm |
+| Start poses | Thumb values re-tuned (pistol, bat, crowbar, rifle, guard fist, magazine release); no thumb penetrates a weapon mesh. Deform rest pose unchanged (≤ 0.05°) |
 
 ## 5. Foot IK (v1 limits, documented)
 

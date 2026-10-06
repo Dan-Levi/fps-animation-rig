@@ -33,6 +33,10 @@ GRIP_HAND_Z = (1.0, 0.2, 0.0)
 GRIP_PALM = (0.066, 0.025)
 # Grip Z fan spread per finger: (amount, moves toward thumb side)
 FAN = {"Index": (1.0, True), "Middle": (0.3, True), "Ring": (0.5, False), "Pinky": (1.0, False)}
+# Grip / finger curl share per joint (knuckle, middle, tip): the tip joint bends less, like a real fist
+CURL_SPLIT = (1.0, 1.0, 0.7)
+# Thumb curl aims across the palm at this point: between the middle and ring knuckles, this far into the palm (m)
+THUMB_TARGET_DEPTH = 0.02
 
 COL_CENTER, COL_LEFT, COL_RIGHT = "THEME09", "THEME04", "THEME01"
 COL_FINGER, COL_CAMERA, COL_WEAPON = "THEME03", "THEME06", "THEME02"
@@ -260,6 +264,17 @@ for s, side in SIDES.items():
             parent = f"CTRL_{f}{i}.{s}"
     dup(f"CTRL_Grip.{s}", P + f"{side}HandMiddle1", hand)
 
+    # Thumb: Mixamo gives it the same roll as the fingers, so X would fold it down under the palm.
+    # Its controls get a roll whose +Z (where +X curls toward) points across the palm; the MCH bones
+    # keep the deform roll and pass the rotation on, so the deform skeleton stays untouched.
+    palm = eb[hand].z_axis  # hand +Z = palm side
+    target = (eb[P + f"{side}HandMiddle1"].head + eb[P + f"{side}HandRing1"].head) / 2 + palm * THUMB_TARGET_DEPTH
+    across = target - eb[P + f"{side}HandThumb2"].head
+    for n in [f"CTRL_Thumb.{s}"] + [f"CTRL_Thumb{i}.{s}" for i in (1, 2, 3)]:
+        eb[n].align_roll(across)
+    for i in (1, 2, 3):
+        dup(f"MCH_Thumb{i}.{s}", P + f"{side}HandThumb{i}", f"CTRL_Thumb{i}.{s}")
+
 bpy.ops.object.mode_set(mode="OBJECT")
 
 
@@ -424,8 +439,11 @@ for s, side in SIDES.items():
             c = copy_rot(det, f"CTRL_{f}.{s}", "LOCAL", "ADD", (True, False, i == 1), "Curl")
             if f == "Thumb" and i == 1:
                 c.influence = 0.5  # thumb metacarpal moves less than the thumb joints
+                c.invert_z = s == "L"  # thumb Z: + spreads the thumb away from the palm on both hands
             if f != "Thumb":
-                copy_rot(det, f"CTRL_Grip.{s}", "LOCAL", "ADD", (True, False, False), "Grip")
+                c.influence = CURL_SPLIT[i - 1]
+                g = copy_rot(det, f"CTRL_Grip.{s}", "LOCAL", "ADD", (True, False, False), "Grip")
+                g.influence = CURL_SPLIT[i - 1]
                 if i == 1:
                     # Grip Z = fan spread: +Z opens the hand on both sides
                     amount, toward_thumb = FAN[f]
@@ -433,7 +451,10 @@ for s, side in SIDES.items():
                     c.influence = amount
                     # local +Z moves fingers toward the thumb on the left hand, toward the pinky on the right
                     c.invert_z = toward_thumb != (s == "L")
-            copy_rot(P + f"{side}Hand{f}{i}", det, "LOCAL")
+            if f == "Thumb":  # rolled control: hand the rotation over through the deform-rolled MCH bone
+                copy_rot(P + f"{side}Hand{f}{i}", f"MCH_Thumb{i}.{s}")
+            else:
+                copy_rot(P + f"{side}Hand{f}{i}", det, "LOCAL")
 
 
 # ---------------------------------------------------------------- solve pole angles so rest stays rest
@@ -663,9 +684,9 @@ def left_hand_on_socket(offset=(0, 0, 0), sock=None):
     set_world_matrix("CTRL_Hand_IK.L", sock @ Matrix.Translation(Vector(offset)) @ HAND_IN_SOCKET_L)
 
 
-def fingers(side, grip=0, thumb=0, index=0, spread=0):
+def fingers(side, grip=0, thumb=0, index=0, spread=0, thumb_spread=0):
     pbs[f"CTRL_Grip.{side}"].rotation_euler = (math.radians(grip), 0, math.radians(spread))
-    pbs[f"CTRL_Thumb.{side}"].rotation_euler = (math.radians(thumb), 0, 0)
+    pbs[f"CTRL_Thumb.{side}"].rotation_euler = (math.radians(thumb), 0, math.radians(thumb_spread))
     pbs[f"CTRL_Index.{side}"].rotation_euler = (math.radians(index), 0, 0)
 
 
@@ -766,8 +787,8 @@ def guard_pose(phase):
     rot("CTRL_Head", -4, 10)
     set_world("CTRL_Elbow_Pole.L", (0.42, -0.10, 1.00))
     set_world("CTRL_Elbow_Pole.R", (-0.42, -0.10, 1.00))
-    fingers("L", 88, 50)
-    fingers("R", 88, 50)
+    fingers("L", 88, 28)  # thumb across the front of the fist
+    fingers("R", 88, 28)
     # fists defined relative to the upper chest, so they follow breathing/sway
     chest = world_of("CTRL_UpperChest")
     for side, pos, y, z in (("L", (0.14, -0.36, 1.38), (-0.10, -0.70, 0.70), (-0.90, 0.30, 0.0)),
@@ -798,8 +819,8 @@ def bat_pose(phase):
     left_hand_on_socket((0.0, -0.10, 0.0))
     set_world("CTRL_Elbow_Pole.R", (-0.50, 0.10, 1.05))
     set_world("CTRL_Elbow_Pole.L", (0.30, -0.30, 0.90))
-    fingers("R", 82, 45)
-    fingers("L", 82, 45)
+    fingers("R", 82, 55, thumb_spread=-60)  # thumb wrapped around the handle
+    fingers("L", 82, 55, thumb_spread=-60)
 
 
 looping_action("Melee_Bat_Idle", {}, bat_pose, LOOP3)
@@ -812,7 +833,7 @@ def crowbar_pose(phase):
     set_world("CTRL_Hand_IK.L", (0.22, -0.10, 1.00 + 0.003 * b), (0.05, -0.45, -0.89), (-1, 0.2, 0))
     set_world("CTRL_Elbow_Pole.R", (-0.45, 0.10, 0.95))
     set_world("CTRL_Elbow_Pole.L", (0.30, 0.40, 1.10))
-    fingers("R", 80, 45)
+    fingers("R", 80, -20, thumb_spread=25)  # thumb along the bar
     fingers("L", 40, 20)
 
 
@@ -825,7 +846,7 @@ PISTOL_SUPPORT = (-0.015, -0.025, 0.0)  # left-hand grip offset from the mirrore
 
 
 def pistol_fingers():
-    fingers("R", 70, 40, -40)
+    fingers("R", 70, 50, -40, thumb_spread=-50)  # thumb wrapped along the left side of the frame
     fingers("L", 78, 30)
 
 
@@ -863,7 +884,7 @@ for f in (1, 4, 8, 12, 16, 20, 24):
         melee_body(0.0, lean=3 if f >= 16 else 1)
         set_world("CTRL_Elbow_Pole.R", (-0.45, 0.25 if f < 16 else 0.0, 1.0 if f < 16 else 0.95))
         right_hand_to_socket(right_keys[f])
-        fingers("R", 70, 40, -40 if f >= 12 else 0)
+        fingers("R", 70, 50, -40 if f >= 12 else 0, thumb_spread=-50)
         if f < 16:  # left hand still relaxed, starting to come up
             set_world("CTRL_Elbow_Pole.L", (0.24, 0.45, 1.15))
             set_world("CTRL_Hand_IK.L", (0.20, -0.03 - 0.02 * (f >= 12), 0.96 + 0.06 * (f >= 12)),
@@ -996,7 +1017,7 @@ for f in (1, 6, 8, 12, 20, 22, 26, 30, 34, 38, 44, 48, 52):
     left_hand_on_socket(PISTOL_SUPPORT)  # overridden below where the left hand is free
     pistol_fingers()
     if f == 8:
-        fingers("R", 70, 65, -40)  # thumb presses the magazine release
+        fingers("R", 70, 40, -40, thumb_spread=-35)  # thumb presses the magazine release
     key_all(f)
     wkey(f)
 # left hand lets go at f8 and works in world space until it is back on the grip at f44
@@ -1086,8 +1107,8 @@ for f in (1, 30):
     set_world("CTRL_Hand_IK.L", grip + Vector((0, -0.19, 0)) - yl * 0.06 - zl * 0.035, yl, zl)
     set_world("CTRL_Elbow_Pole.R", (-0.55, 0.0, 0.95))
     set_world("CTRL_Elbow_Pole.L", (0.45, -0.25, 0.85))
-    fingers("R", 65, 45, -45)
-    fingers("L", 45, 15)
+    fingers("R", 65, 30, -45, thumb_spread=-10)
+    fingers("L", 45, -10, thumb_spread=-10)
     key_all(f)
 
 # Which weapon each Action uses (the FPS Rig panel shows it and shares the Action with a rigged weapon)

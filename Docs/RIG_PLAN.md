@@ -46,9 +46,9 @@ Colours: center = yellow, left = blue, right = red, fingers = green, camera = pu
 | `CTRL_Foot_IK.L/R` | leg chain + `Foot` | Flat, world-aligned, pivot at the ankle. Planted feet. No heel/toe roll (§8) |
 | `CTRL_Toe.L/R` | `ToeBase` | Toe bend |
 | `CTRL_Knee_Pole.L/R` | knee direction | Follows its foot |
-| `CTRL_Grip.L/R` | 4 fingers | Rotate X = whole-hand fist, Z = fan spread (+Z opens, same on both hands) |
+| `CTRL_Grip.L/R` | 4 fingers | Rotate X = whole-hand fist (joint share 1 / 1 / 0.7), Z = fan spread (+Z opens, same on both hands) |
 | `CTRL_Index/Middle/Ring/Pinky.L/R` | that finger | Rotate X = curl all 3 joints equally, Z = side-to-side at the knuckle (direction is mirrored between hands – rotate visually) |
-| `CTRL_Thumb.L/R` | thumb | Rotate X = curl toward/across the palm (metacarpal gets half), Z = spread toward/away from the index finger |
+| `CTRL_Thumb.L/R` | thumb | Rotate X = curl across the palm toward the pinky (metacarpal gets half), Z = +away from the palm / −wrap around a handle (same on both hands). Thumb controls have their own roll; `MCH_Thumb1–3` hand the rotation to the untouched deform bones |
 | `CTRL_<Finger>1-3.L/R` | single joints | Fine adjustment, layered on top of curl |
 | `CTRL_Weapon` | right hand (and through it the weapon) | Grab handle for the weapon. **Follow Chest** 1 = moves with the upper body. Weapon models parent to `WPN_Attach`, not here (§5) |
 | `CTRL_Camera` | `AnimCamera` | Slider **Follow Head** (default 0) |
@@ -108,7 +108,7 @@ Done in Blender (scripted checks):
 
 1. With all controls at rest, every deform bone matches its original rest pose within 0.05° / 0.004 cm (measured in float64 from the exported FBX; Blender's float32 pose matrices can't resolve finer).
 2. Crouch: lowering `CTRL_Torso` 30 cm keeps the feet within 0.1 mm, knees bend forward.
-3. Fingers: curl is exact and additive (master + detail + grip), fan spread opens on both hands, thumb curl distributes 0.5/1/1.
+3. Fingers: curl is additive (master + detail + grip) with a 1 / 1 / 0.7 joint share, fan spread opens on both hands, thumb curl distributes 0.5/1/1 across the palm.
 4. Weapon: in the example pose `WPN_Socket` and `CTRL_Weapon` coincide; hands follow; `Follow Weapon` = 0 releases a hand.
 5. Camera: `Follow Head` = 0 → head motion does not move `AnimCamera`; = 1 → it does.
 6. Export: an animated test Action re-imports with all deform bones matching the rig to 0.02 mm (rotation differences below the float32 resolution of ~0.04°), no control bones exported; FBX structure matches the source conventions (§6).

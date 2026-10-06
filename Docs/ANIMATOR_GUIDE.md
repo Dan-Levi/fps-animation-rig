@@ -103,14 +103,20 @@ Verdiene i sidepanelet (N → Item) er ekte meter og grader. Posisjonene er mål
 
 | Kontroll | Roter X | Roter Z |
 |---|---|---|
-| `CTRL_Grip.L/R` (streken over knokene) | Knyttneve: bøyer alle fire fingre | Vifte: +Z sprer fingrene, −Z samler dem. Likt på begge hender |
+| `CTRL_Grip.L/R` (streken over knokene) | Knyttneve: bøyer alle fire fingre (ytterste ledd litt mindre, som en ekte knyttneve) | Vifte: +Z sprer fingrene, −Z samler dem. Likt på begge hender |
 | `CTRL_Index/Middle/Ring/Pinky.L/R` | Bøyer den fingeren (alle tre ledd) | Flytter fingeren sidelengs ved knoken |
-| `CTRL_Thumb.L/R` | Bøyer tommelen inn mot og over håndflaten | Svinger tommelen mot eller bort fra pekefingeren |
+| `CTRL_Thumb.L/R` | Bøyer tommelen **over** håndflaten mot lillefingeren | **+Z** løfter tommelen ut fra håndflaten, **−Z** legger den rundt et håndtak. Likt på begge hender |
 
 - Positiv X lukker og negativ X åpner, på begge hender.
 - Alt legges sammen. Grip X 65 og Index X −45 gir for eksempel en avtrekkerfinger som er nesten rett mens resten holder grepet.
 - Finjustering: slå på bein-samlingen **Finger Detail** (Armature-egenskaper → Bone Collections). Den gir én liten sirkel per ledd.
-- Grip over omtrent 80° presser fingertuppene inn i håndflaten på denne low-poly-modellen.
+- **Typiske verdier:**
+  | Grep | Grip X | Thumb X | Thumb Z |
+  |---|---|---|---|
+  | Knyttneve (tommel foran fingrene) | 85 | 25 | 0 |
+  | Rundt et håndtak (pistol, balltre) | 70–82 | 50–55 | −50 til −60 |
+  | Avslappet hånd | 20 | 10 | 0 |
+- Grip over omtrent 85° presser fingertuppene inn i håndflaten på denne low-poly-modellen.
 
 ---
 
