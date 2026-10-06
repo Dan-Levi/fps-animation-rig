@@ -364,6 +364,7 @@ Animasjoner du har laget i en eksisterende `.blend` blir ikke flyttet automatisk
 ## 9. Begrensninger og tips
 
 - **Foten roterer rundt ankelen.** Det finnes ikke hæl- eller tåpivot. For å løfte hælen roterer du foten og flytter den ned. For tåhev bøyer du også `CTRL_Toe`.
+- **Knærne er hengsler:** de bøyer bare framover. Vil du ha knærne innover eller utover, flytter du `CTRL_Knee_Pole` til siden.
 - **Helt rette bein** kan få knærne til å «poppe». Behold en liten bøy.
 - **Flytter du `CTRL_Root`, flytter føttene seg også.** Bruk `CTRL_Torso` for å flytte kroppen med føttene på plass.
 - **Ikke flytt, gi nytt navn til eller endre forelder på bein i Edit Mode.** Mixamo-skjelettet må være identisk for Unity.

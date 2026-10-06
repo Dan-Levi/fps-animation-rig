@@ -171,6 +171,10 @@ Still open – needs the Unity project:
 - Panel: **Adjust Grip** (shows/selects the grip box) → G/R → **Done** (stores it per weapon) / **Reset Grip**. The build reads the same file, so grips survive a rebuild.
 - Export: the weapon model's and weapon clips' root node carries the grip, so in Unity every weapon prefab still sits at 0/0 under the one character socket; the character socket values do not change.
 
+## 7h. Knee hinge (v1.9)
+
+- LowPolyGuy's T-pose legs are almost straight (3° bend, 11.5 mm outward, 0.9 mm forward), so the leg IK bent the knees sideways. The shins now act as hinges: IK may only rotate them around their local X (sideways on Mixamo legs) and only forward (`KNEE_IK_RANGE` −160°…0°). Rest pose unchanged; a 30 cm crouch moves the knees 25 cm forward and the feet stay planted; `CTRL_Knee_Pole` still swings the knee.
+
 ## 8. Out of scope for this version
 
 - Foot: no heel/toe roll pivots or roll slider – the foot rotates around the ankle, so heel-lifts and tip-toe need foot rotation plus a counter-move, or `CTRL_Toe`. No knee-snap softening: near full leg extension the IK can pop. No automatic floor contact.

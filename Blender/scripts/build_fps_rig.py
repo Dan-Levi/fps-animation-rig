@@ -38,6 +38,8 @@ GRIP_PALM = (0.066, 0.025)
 FAN = {"Index": (1.0, True), "Middle": (0.3, True), "Ring": (0.5, False), "Pinky": (1.0, False)}
 # Grip / finger curl share per joint (knuckle, middle, tip): the tip joint bends less, like a real fist
 CURL_SPLIT = (1.0, 1.0, 0.7)
+# Knee hinge range for the leg IK (radians, around the shin's local X): forward bend only
+KNEE_IK_RANGE = (math.radians(-160.0), math.radians(0.0))
 # Thumb curl aims across the palm at this point: between the middle and ring knuckles, this far into the palm (m)
 THUMB_TARGET_DEPTH = 0.02
 
@@ -469,6 +471,12 @@ for s, side in SIDES.items():
     c.pole_target, c.pole_subtarget = arm, f"CTRL_Knee_Pole.{s}"
     c.chain_count, c.use_stretch = 2, False
     ik[f"leg.{s}"] = (c, P + f"{side}Leg")
+    # Knee = hinge: IK may only bend the shin around its own X axis (sideways on Mixamo legs), and only forward.
+    # Without this the knee bends wherever the rest pose happens to bend - outward on a nearly straight T-pose leg.
+    shin = pbs[P + f"{side}Leg"]
+    shin.lock_ik_y = shin.lock_ik_z = True
+    shin.use_ik_limit_x = True
+    shin.ik_min_x, shin.ik_max_x = KNEE_IK_RANGE
     copy_rot(P + f"{side}Foot", f"MCH_Foot.{s}")
     copy_rot(P + f"{side}ToeBase", f"CTRL_Toe.{s}")
 
