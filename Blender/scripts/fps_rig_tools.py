@@ -3,6 +3,7 @@
 - Action: Start/End (the timeline follows), Fit to keys, Match End to Start, Select control groups.
 - Switch Follow (keep pose): flip a control's Follow slider without the control jumping.
 - Weapon for this Action: which weapon an Action uses (shown automatically, shares the Action).
+- Adjust Grip: how that weapon sits in the hand (per weapon, stored in weapon_grips.json, never animated).
 - Make / Update Weapon Rig: build a small rig for a weapon from its separate part objects.
 - Export this Action / Export all Actions: character clip (+ weapon clip) per Action.
 - Export Weapon Model: the weapon's model + skeleton for a Unity prefab.
@@ -13,6 +14,7 @@ Embedded in Blender/FPS_Rig.blend as a text block that registers itself when the
 opened (if Blender blocks scripts: click "Allow Execution", or open the text and Run Script).
 The rig works without this panel; see Docs/ANIMATOR_GUIDE.md for the manual alternatives.
 """
+import json
 import math
 import os
 import re
@@ -20,7 +22,7 @@ import re
 import bpy
 from bpy.app.handlers import persistent
 from bpy_extras import anim_utils
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
 
 ARMATURE = "Armature"
 # character control -> its space-switch slider
@@ -31,6 +33,9 @@ FOLLOW_PROPS = {
     "CTRL_Camera": "Follow Head",
 }
 WEAPONS_COLLECTION = "Weapons"
+GRIP_BONE = "WPN_Grip"            # character bone under WPN_Socket: how the current weapon sits in the hand
+GRIP_COLLECTION = "Grip"          # bone collection shown while adjusting the grip
+GRIPS_PATH = None                 # override for weapon_grips.json (the build sets it); default: next to the .blend
 LEFT_HAND_PROP = "PROP_Hand.L"          # character bone: left-hand prop socket
 RX90 = Matrix.Rotation(math.radians(90.0), 4, "X")  # weapon armature: local Y up / Z barrel, like the socket
 
@@ -201,6 +206,108 @@ def ensure_weapon_action(wobj, act):
     return slot
 
 
+# ---------------------------------------------------------------- weapons: grip (how each weapon sits in the hand)
+def grips_file():
+    if GRIPS_PATH:
+        return GRIPS_PATH
+    return os.path.join(bpy.path.abspath("//") or os.getcwd(), "weapon_grips.json")
+
+
+def load_grips():
+    try:
+        with open(grips_file()) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_grips(grips):
+    with open(grips_file(), "w") as f:
+        json.dump(grips, f, indent=2, sort_keys=True)
+
+
+def grip_matrix(name):
+    """The stored grip of a weapon (socket space), identity if none."""
+    g = load_grips().get(name)
+    if not g:
+        return Matrix()
+    return Matrix.LocRotScale(Vector(g["location"]), Quaternion(g["rotation"]), Vector((1, 1, 1)))
+
+
+def apply_grip(name):
+    arm = get_rig()
+    pb = arm.pose.bones.get(GRIP_BONE) if arm else None
+    if pb is None:
+        return
+    m = grip_matrix(name)
+    if any(abs(a - b) > 1e-7 for ra, rb in zip(pb.matrix_basis, m) for a, b in zip(ra, rb)):
+        pb.matrix_basis = m
+        arm.update_tag()
+
+
+def _grip_collection(arm):
+    return arm.data.collections_all.get(GRIP_COLLECTION)
+
+
+def grip_adjusting():
+    arm = get_rig()
+    c = _grip_collection(arm) if arm else None
+    return bool(c and c.is_visible)
+
+
+def grip_adjust_start():
+    arm = get_rig()
+    if bpy.context.object and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    arm.hide_set(False)
+    arm.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    _grip_collection(arm).is_visible = True
+    for pb in arm.pose.bones:
+        _set_select(pb, False)
+    pb = arm.pose.bones[GRIP_BONE]
+    _set_select(pb, True)
+    arm.data.bones.active = pb.bone
+
+
+def _drop_grip_keys(arm):
+    """The grip is never animated: remove keys on it from every Action."""
+    for act in bpy.data.actions:
+        for slot in act.slots:
+            cb = anim_utils.action_get_channelbag_for_slot(act, slot)
+            if cb:
+                for fc in [fc for fc in cb.fcurves if f'pose.bones["{GRIP_BONE}"]' in fc.data_path]:
+                    cb.fcurves.remove(fc)
+
+
+def grip_done(reset=False):
+    """Store the grip of the current Action's weapon (or reset it) and leave grip adjustment."""
+    arm = get_rig()
+    act = _active_action()
+    name = act.get("Weapon", "") if act else ""
+    if not name:
+        raise RuntimeError("This Action has no weapon (Weapon for this Action).")
+    _drop_grip_keys(arm)
+    pb = arm.pose.bones[GRIP_BONE]
+    if reset:
+        pb.matrix_basis = Matrix()
+    grips = load_grips()
+    loc, rot, _ = pb.matrix_basis.decompose()
+    if loc.length < 1e-6 and rot.angle < 1e-5:
+        grips.pop(name, None)
+    else:
+        grips[name] = {"location": [round(v, 6) for v in loc], "rotation": [round(v, 7) for v in rot]}
+    save_grips(grips)
+    _grip_collection(arm).is_visible = False
+    _set_select(pb, False)
+    arm.update_tag()
+    upd()
+    return name
+
+
 def apply_weapon(name, act=None, view_layer=None):
     """Show only the given weapon's collection; share the Action with its rig."""
     vl = view_layer or bpy.context.view_layer
@@ -215,6 +322,7 @@ def apply_weapon(name, act=None, view_layer=None):
     wobj = weapon_rig(name)
     if wobj and act:
         ensure_weapon_action(wobj, act)
+    apply_grip(name)
 
 
 _sync_state = {"key": None, "paused": 0}
@@ -636,7 +744,7 @@ def _export_weapon_action(act, wobj, filepath, start, end, scene):
     wobj.name = name + "__src"
     tmp = bpy.data.objects.new(name, wobj.data)
     scene.collection.objects.link(tmp)
-    tmp.matrix_world = RX90.copy()
+    tmp.matrix_world = RX90 @ grip_matrix(name[4:] if name.startswith("WPN_") else name)  # same root as the model
     upd()  # a new object only gets its pose after an update
     tact = bpy.data.actions.new("__weapon_export")
     tmp.animation_data_create().action = tact
@@ -672,7 +780,7 @@ def export_weapon_model(wobj, filepath=None):
     hidden = {o: o.hide_get() for o in [wobj] + meshes}
     try:
         wobj.parent = None
-        wobj.matrix_world = RX90.copy()
+        wobj.matrix_world = RX90 @ grip_matrix(wname)  # root node = grip: the prefab sits at 0/0 under the socket
         wobj.data.pose_position = "REST"
         upd()
         with _ExportState():
@@ -1367,6 +1475,48 @@ class FPSRIG_OT_set_weapon(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _has_weapon():
+    act = _active_action()
+    return act is not None and bool(act.get("Weapon", "")) and get_rig().pose.bones.get(GRIP_BONE) is not None
+
+
+class FPSRIG_OT_grip_adjust(bpy.types.Operator):
+    """Adjust how this Action's weapon sits in the hand: move/rotate the orange box (G / R), then press Done"""
+    bl_idname = "fpsrig.grip_adjust"
+    bl_label = "Adjust Grip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _has_weapon()
+
+    def execute(self, context):
+        grip_adjust_start()
+        return {"FINISHED"}
+
+
+class FPSRIG_OT_grip_done(bpy.types.Operator):
+    """Save the grip for this weapon (all its Actions) and stop adjusting"""
+    bl_idname = "fpsrig.grip_done"
+    bl_label = "Done"
+    bl_options = {"REGISTER", "UNDO"}
+    reset: bpy.props.BoolProperty(default=False)
+
+    @classmethod
+    def poll(cls, context):
+        return _has_weapon()
+
+    def execute(self, context):
+        try:
+            name = grip_done(self.reset)
+        except RuntimeError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        what = "reset" if self.reset else "saved"
+        self.report({"INFO"}, f"{name}: grip {what}. Export Weapon Model again for Unity (rigged weapons).")
+        return {"FINISHED"}
+
+
 class FPSRIG_OT_make_weapon_rig(bpy.types.Operator):
     """Build (or update) a weapon rig from the selected part objects: <Weapon>_Frame/_Body/_Receiver plus moving parts"""
     bl_idname = "fpsrig.make_weapon_rig"
@@ -1606,6 +1756,15 @@ class FPSRIG_PT_panel(bpy.types.Panel):
         box.label(text="Weapon", icon="MOD_ARMATURE")
         current = (act.get("Weapon", "") if act else "") or "Unarmed"
         box.operator_menu_enum(FPSRIG_OT_set_weapon.bl_idname, "weapon", text=f"Weapon for this Action: {current}")
+        if grip_adjusting():
+            col = box.column(align=True)
+            col.label(text=f"Adjusting grip: {current}", icon="HAND")
+            col.label(text="Move / rotate the orange box: G / R")
+            row = box.row(align=True)
+            row.operator(FPSRIG_OT_grip_done.bl_idname, text="Done", icon="CHECKMARK").reset = False
+            row.operator(FPSRIG_OT_grip_done.bl_idname, text="Reset Grip", icon="LOOP_BACK").reset = True
+        else:
+            box.operator(FPSRIG_OT_grip_adjust.bl_idname, icon="HAND")
         box.operator(FPSRIG_OT_make_weapon_rig.bl_idname, icon="BONE_DATA")
         box.operator(FPSRIG_OT_export_weapon_model.bl_idname, icon="EXPORT")
 
@@ -1674,7 +1833,7 @@ class FPSRIG_PT_tutorial(bpy.types.Panel):
         layout.operator(FPSRIG_OT_tut_reset.bl_idname, text="Start på nytt", icon="FILE_REFRESH")
 
 
-CLASSES = (FPSRIG_OT_switch_follow, FPSRIG_OT_set_weapon, FPSRIG_OT_make_weapon_rig, FPSRIG_OT_set_motion,
+CLASSES = (FPSRIG_OT_switch_follow, FPSRIG_OT_set_weapon, FPSRIG_OT_grip_adjust, FPSRIG_OT_grip_done, FPSRIG_OT_make_weapon_rig, FPSRIG_OT_set_motion,
            FPSRIG_OT_export_action, FPSRIG_OT_export_all, FPSRIG_OT_export_weapon_model, FPSRIG_OT_export_character_model,
            FPSRIG_OT_fit_to_keys, FPSRIG_OT_match_end, FPSRIG_OT_select_controls,
            FPSRIG_OT_tut_nav, FPSRIG_OT_tut_run, FPSRIG_OT_tut_reset, FPSRIG_PT_panel, FPSRIG_PT_tutorial)

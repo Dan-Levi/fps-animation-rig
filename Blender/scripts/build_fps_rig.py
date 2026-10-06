@@ -24,6 +24,8 @@ TOOLS_SCRIPT = os.path.join(REPO, "Blender", "scripts", "fps_rig_tools.py")
 sys.path.insert(0, os.path.dirname(TOOLS_SCRIPT))
 import fps_rig_tools as tools  # noqa: E402  (shared keying / switch / export logic)
 
+tools.GRIPS_PATH = os.path.join(REPO, "Blender", "weapon_grips.json")  # per-weapon grips (FPS Rig panel)
+
 P = "mixamorig:"
 SIDES = {"L": "Left", "R": "Right"}
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
@@ -161,6 +163,7 @@ W["finger"] = widget("Finger", *ring(1.0, y=1.5))
 W["finger_master"] = widget("FingerMaster", *merge(ring(1.4, y=1.5, z0=-3.5), ([(0, 1.5, 0), (0, 1.5, -2.1)], [(0, 1)])))
 W["grip"] = widget("Grip", *merge(ring(3.0, y=0, z0=-6), ([(-3, 0, -6), (3, 0, -6)], [(0, 1)])))
 W["weapon"] = widget("Weapon", *box(-2, 2, -8, 45, -3, 5))
+W["weapon_grip"] = widget("WeaponGrip", *box(-2.5, 2.5, -9, 8, -6, 22))  # socket axes: Y up, Z barrel
 W["camera"] = widget("Camera", [(0, 0, 0), (-7, -4, 12), (7, -4, 12), (7, 4, 12), (-7, 4, 12), (-3, 5, 12), (3, 5, 12), (0, 8, 12)],
                      [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (2, 3), (3, 4), (4, 1), (5, 6), (6, 7), (7, 5)])
 wgt_col.hide_viewport = True
@@ -245,6 +248,12 @@ sock.matrix = Matrix.LocRotScale(INV @ socket_world.translation, (INV3 @ socket_
                                  Vector((1, 1, 1)))
 sock.parent = rh
 sock.use_deform = False
+# How the current weapon sits in the hand: a per-weapon offset under the socket (FPS Rig panel: Adjust Grip)
+grip_b = eb.new("WPN_Grip")
+grip_b.length = 0.06
+grip_b.matrix = sock.matrix.copy()
+grip_b.parent = sock
+grip_b.use_deform = False
 # Left-hand prop socket (mirror of the right-hand grip): magazines/props held in the left hand follow it
 lh = eb[P + "LeftHand"]
 lh_world = MW @ lh.matrix
@@ -315,6 +324,8 @@ C_FING = coll.new("Fingers")
 C_DET = coll.new("Finger Detail")
 C_DEF = coll.new("Deform (Mixamo)")
 C_MCH = coll.new("Mechanism")
+C_GRIP = coll.new(tools.GRIP_COLLECTION)
+C_GRIP.is_visible = False
 C_DET.is_visible = False
 C_DEF.is_visible = False
 C_MCH.is_visible = False
@@ -356,6 +367,7 @@ ctrl("CTRL_Neck", "neck", COL_CENTER, C_MAIN, "XYZ", lock_loc=True)
 ctrl("CTRL_Head", "head", COL_CENTER, C_MAIN, "XYZ", lock_loc=True)
 ctrl("CTRL_Weapon", "weapon", COL_WEAPON, C_MAIN)
 ctrl("CTRL_Camera", "camera", COL_CAMERA, C_MAIN, "XYZ")
+ctrl("WPN_Grip", "weapon_grip", COL_WEAPON, C_GRIP, wire=3.0)
 
 for s in SIDES:
     col = COL_LEFT if s == "L" else COL_RIGHT
@@ -443,7 +455,7 @@ for s, side in SIDES.items():
     add_prop(f"CTRL_Hand_IK.{s}", "Follow Weapon", 1.0, "0 = hand stays in world/root space, 1 = hand moves with the weapon")
     # Right hand carries the weapon (driven by CTRL_Weapon); the left hand follows the weapon as it
     # actually sits in the right hand, so both hands agree with a runtime right-hand socket.
-    space_switch(f"MCH_Space_Hand.{s}", ["CTRL_Root", "CTRL_Weapon" if s == "R" else "WPN_Socket"],
+    space_switch(f"MCH_Space_Hand.{s}", ["CTRL_Root", "CTRL_Weapon" if s == "R" else "WPN_Grip"],
                  f"CTRL_Hand_IK.{s}", "Follow Weapon")
     c = pbs[P + f"{side}ForeArm"].constraints.new("IK")
     c.target, c.subtarget = arm, f"CTRL_Hand_IK.{s}"
@@ -534,11 +546,11 @@ scene.render.resolution_x, scene.render.resolution_y = 1920, 1080
 
 # ---------------------------------------------------------------- weapon references
 # Visible attach point for weapon models: origin = grip, Z arrow = barrel/business end, Y arrow = up.
-sm = MW @ arm.data.bones["WPN_Socket"].matrix_local
+sm = MW @ arm.data.bones["WPN_Grip"].matrix_local
 attach = bpy.data.objects.new("WPN_Attach", None)
 attach.empty_display_type, attach.empty_display_size = "ARROWS", 0.08
 scene.collection.objects.link(attach)
-parent_to_bone(attach, "WPN_Socket", Matrix.LocRotScale(sm.translation, sm.to_quaternion(), Vector((1, 1, 1))))
+parent_to_bone(attach, "WPN_Grip", Matrix.LocRotScale(sm.translation, sm.to_quaternion(), Vector((1, 1, 1))))
 
 weapons_col = bpy.data.collections.new(tools.WEAPONS_COLLECTION)
 scene.collection.children.link(weapons_col)
@@ -709,7 +721,7 @@ def right_hand_to_socket(sock):
 
 def left_hand_on_socket(offset=(0, 0, 0), sock=None):
     """Left hand gripping the weapon, mirrored right-hand grip shifted by offset (socket space, m)."""
-    sock = sock or world_of("WPN_Socket")
+    sock = sock or world_of("WPN_Grip")  # the weapon as it sits in the hand (per-weapon grip)
     set_world_matrix("CTRL_Hand_IK.L", sock @ Matrix.Translation(Vector(offset)) @ HAND_IN_SOCKET_L)
 
 
@@ -725,16 +737,27 @@ def rot(name, x=0.0, y=0.0, z=0.0):
 
 def reset_pose(follow=None):
     for pb in pbs:
-        pb.matrix_basis = Matrix()
+        if pb.name != "WPN_Grip":  # the grip is per weapon, never part of a pose
+            pb.matrix_basis = Matrix()
     for name, value in {**FOLLOW_DEFAULTS, **(follow or {})}.items():
         pbs[name][tools.FOLLOW_PROPS[name]] = value
     upd()
+
+
+# Which weapon each Action uses (the FPS Rig panel shows it and shares the Action with a rigged weapon)
+ACTION_WEAPONS = {"Unarmed_Idle": "", "Guard_Idle": "", "Melee_Bat_Idle": "Bat", "Melee_Crowbar_Idle": "Crowbar",
+                  "Pistol_Idle_Hip": "M1911", "Pistol_Draw": "M1911", "Pistol_Fire": "M1911",
+                  "Pistol_Reload": "M1911", "Example_FPS_Ready": "Rifle"}
 
 
 def new_action(name, start, end):
     act = bpy.data.actions.new(name)
     act.use_fake_user = True
     arm.animation_data.action = act
+    if name in ACTION_WEAPONS:  # set before posing: hands use the weapon's grip
+        act["Weapon"] = ACTION_WEAPONS[name]
+        tools.apply_grip(ACTION_WEAPONS[name])
+        upd()
     act.use_frame_range = True
     act.frame_start, act.frame_end = start, end
     return act
@@ -1088,7 +1111,7 @@ for f in (20, 24):
         tools.key_control(arm, n, f)
 scene.frame_set(24)
 print("draw end: left hand on pistol error %.4f m" % (
-    (world_of("CTRL_Hand_IK.L").translation - (world_of("WPN_Socket") @ Matrix.Translation(Vector(PISTOL_SUPPORT))
+    (world_of("CTRL_Hand_IK.L").translation - (world_of("WPN_Grip") @ Matrix.Translation(Vector(PISTOL_SUPPORT))
                                                 @ HAND_IN_SOCKET_L).translation).length))
 
 # ---------------------------------------------------------------- weapon animation examples (Pistol)
@@ -1290,10 +1313,7 @@ for f in (1, 30):
     fingers("L", 45, -10, thumb_spread=-10)
     key_all(f)
 
-# Which weapon each Action uses (the FPS Rig panel shows it and shares the Action with a rigged weapon)
-for name, w in {"Unarmed_Idle": "", "Guard_Idle": "", "Melee_Bat_Idle": "Bat", "Melee_Crowbar_Idle": "Crowbar",
-                "Pistol_Idle_Hip": WEAPON, "Pistol_Draw": WEAPON, "Pistol_Fire": WEAPON,
-                "Pistol_Reload": WEAPON, "Example_FPS_Ready": "Rifle"}.items():
+for name, w in ACTION_WEAPONS.items():
     bpy.data.actions[name]["Weapon"] = w
 
 # Open on the neutral idle, no weapon shown

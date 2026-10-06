@@ -165,6 +165,12 @@ Still open – needs the Unity project:
 - Accuracy: hands, fingers, spine, feet exact; elbows/knees within 4.3 mm (IK); exported FBX vs the GLB within 4.3 mm.
 - The other pistol clips still use the procedural hip pose; their weapon pose differs from the idle's first frame by about 4 cm / 14°.
 
+## 7g. Per-weapon grip (v1.8)
+
+- `WPN_Grip` (non-deform, bone collection "Grip", hidden) sits under `WPN_Socket` with the same rest; `WPN_Attach` (and so every weapon) follows it, and so does the left hand's Follow Weapon space. Its pose is the current weapon's grip: set from `Blender/weapon_grips.json` whenever the Action/weapon changes, never keyed (the panel removes any keys).
+- Panel: **Adjust Grip** (shows/selects the grip box) → G/R → **Done** (stores it per weapon) / **Reset Grip**. The build reads the same file, so grips survive a rebuild.
+- Export: the weapon model's and weapon clips' root node carries the grip, so in Unity every weapon prefab still sits at 0/0 under the one character socket; the character socket values do not change.
+
 ## 8. Out of scope for this version
 
 - Foot: no heel/toe roll pivots or roll slider – the foot rotates around the ankle, so heel-lifts and tip-toe need foot rotation plus a counter-move, or `CTRL_Toe`. No knee-snap softening: near full leg extension the IK can pop. No automatic floor contact.

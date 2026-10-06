@@ -148,6 +148,14 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
 
 - **`WPN_Attach`** (tom med piler) er festepunktet. Origo er grepspunktet, Z-pila peker langs løpet (eller den «farlige enden»), og Y-pila peker opp.
 - **Animere våpenet i hånden:** flytt og roter `CTRL_Weapon`. Høyre hånd følger, og våpenet følger høyre hånd.
+- **Juster grepet** (hvordan våpenet sitter i hånden), én gang per våpen:
+  1. Velg en Action med våpenet.
+  2. Trykk **Adjust Grip** i FPS Rig-panelet. En oransje boks rundt våpenet blir valgt.
+  3. Flytt (**G**) og roter (**R**) til våpenet sitter godt. Venstre hånd følger med våpenet.
+  4. Trykk **Done**. Grepet gjelder alle klipp med dette våpenet, men ingen andre våpen. **Reset Grip** går tilbake til standard.
+  - Grepet animeres ikke. Det lagres i `Blender/weapon_grips.json`, så commit den fila også.
+  - Riggede våpen: trykk **Export Weapon Model** på nytt etterpå, så får Unity det nye grepet.
+  - Fingrene justerer du per klipp med `CTRL_Grip.R`, `CTRL_Thumb.R` og `CTRL_Index.R`.
 - **Animere delene** (slide, avtrekker, magasin) på et rigget våpen: se kapittel 8.4. Delene animeres i **samme Action** som kroppen.
 - **Høyre Follow Weapon = 0:** animer `CTRL_Hand_IK.R` direkte (fint for nærkampslag). Våpenet følger fortsatt hånden, men `CTRL_Weapon` gjør da ingenting.
 - **Uten våpen:** sett Weapon for this Action = Unarmed og Follow Weapon = 0 på begge hender.

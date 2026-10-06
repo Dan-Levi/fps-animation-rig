@@ -93,7 +93,7 @@ WPN_M1911             (prefab-rot)
     ├ M1911_Muzzle    (effektpunkt: munningsflamme)
     └ M1911_Eject     (effektpunkt: hylser, høyre side)
 ```
-- Legg prefaben som barn av **`WeaponSocket`** (under `mixamorig:RightHand`, se §3) med **posisjon 0 og rotasjon 0**. Våpenets +Z er løpet, +Y er opp, og origo er grepet. Det er de samme aksene som socketen.
+- Legg prefaben som barn av **`WeaponSocket`** (under `mixamorig:RightHand`, se §3) med **posisjon 0 og rotasjon 0**. Grepet fra **Adjust Grip** i Blender ligger i prefabens armatur-node (`WPN_<Våpen>`), så socketen er den samme for alle våpen. Eksporter våpenmodellen på nytt når grepet endres. Våpenets +Z er løpet, +Y er opp, og origo er grepet. Det er de samme aksene som socketen.
 - Prefaben får sin egen **Animator**, med tilstander som heter det samme som karakterklippene: `Pistol_Idle_Hip`, `Pistol_Fire`, `Pistol_Reload` …
 - Spill begge samtidig fra kode, for eksempel:
   ```csharp
