@@ -34,7 +34,8 @@ FOLLOW_PROPS = {
 }
 WEAPONS_COLLECTION = "Weapons"
 GRIP_BONE = "WPN_Grip"            # character bone under WPN_Socket: how the current weapon sits in the hand
-GRIP_COLLECTION = "Grip"          # bone collection shown while adjusting the grip
+GRIP_COLLECTION = "Grip"
+FINGER_DETAIL_COLLECTION = "Finger Detail"  # per-joint finger controls (CTRL_Index1.R ...)          # bone collection shown while adjusting the grip
 GRIPS_PATH = None                 # override for weapon_grips.json (the build sets it); default: next to the .blend
 LEFT_HAND_PROP = "PROP_Hand.L"          # character bone: left-hand prop socket
 RX90 = Matrix.Rotation(math.radians(90.0), 4, "X")  # weapon armature: local Y up / Z barrel, like the socket
@@ -1751,6 +1752,9 @@ class FPSRIG_PT_panel(bpy.types.Panel):
         row = box.row(align=True)
         for ident, label, _ in GROUP_ITEMS:
             row.operator(FPSRIG_OT_select_controls.bl_idname, text=label).group = ident
+        detail = arm.data.collections_all.get(FINGER_DETAIL_COLLECTION)
+        if detail is not None:  # one small circle per finger joint, for fine finger posing
+            box.prop(detail, "is_visible", text="Show Finger Joints", toggle=True, icon="VIEW_PAN")
 
         box = layout.box()
         box.label(text="Weapon", icon="MOD_ARMATURE")

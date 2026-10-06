@@ -18,7 +18,7 @@ Fil: `Blender/FPS_Rig.blend`. Laget og testet i Blender 5.0, så bruk 5.0 eller 
 4. Velg riggen og gå til **Pose Mode** (Ctrl+Tab).
 
 Riggen virker fint uten panelet. Panelet gir disse snarveiene:
-- **Action-boksen:** Start/End for klippet (tidslinjen følger automatisk), **Fit to keys**, **Match End to Start** og **Select: All / Body / Fingers / Weapon**.
+- **Action-boksen:** Start/End for klippet (tidslinjen følger automatisk), **Fit to keys**, **Match End to Start**, **Select: All / Body / Fingers / Weapon** og **Show Finger Joints** (kontroller for hvert fingerledd).
 - **Weapon for this Action:** hvilket våpen klippet bruker. Det vises automatisk.
 - **Adjust Grip:** hvordan våpenet sitter i hånden, ett grep per våpen (kapittel 5.1).
 - **Make / Update Weapon Rig:** rigger et nytt våpen (kapittel 8).
@@ -110,7 +110,7 @@ Verdiene i sidepanelet (N → Item) er ekte meter og grader. Posisjonene er mål
 
 - Positiv X lukker og negativ X åpner, på begge hender.
 - Alt legges sammen. Grip X 65 og Index X −45 gir for eksempel en avtrekkerfinger som er nesten rett mens resten holder grepet.
-- Finjustering: slå på bein-samlingen **Finger Detail** (Armature-egenskaper → Bone Collections). Den gir én liten sirkel per ledd.
+- Finjustering: trykk **Show Finger Joints** i FPS Rig-panelet (eller slå på bein-samlingen **Finger Detail** under Armature-egenskaper → Bone Collections). Da får hvert ledd en liten sirkel, f.eks. `CTRL_Index2.R`. **R X X** bøyer leddet, og **R Z Z** på knoken (ledd 1) flytter fingeren sidelengs. Det legges oppå Grip og fingerkontrollene. Trykk knappen igjen for å skjule dem.
 - **Typiske verdier:**
   | Grep | Grip X | Thumb X | Thumb Z |
   |---|---|---|---|
