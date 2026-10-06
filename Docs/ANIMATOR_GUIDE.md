@@ -20,9 +20,10 @@ Fil: `Blender/FPS_Rig.blend`. Laget og testet i Blender 5.0, så bruk 5.0 eller 
 Riggen virker fint uten panelet. Panelet gir disse snarveiene:
 - **Action-boksen:** Start/End for klippet (tidslinjen følger automatisk), **Fit to keys**, **Match End to Start** og **Select: All / Body / Fingers / Weapon**.
 - **Weapon for this Action:** hvilket våpen klippet bruker. Det vises automatisk.
+- **Adjust Grip:** hvordan våpenet sitter i hånden, ett grep per våpen (kapittel 5.1).
 - **Make / Update Weapon Rig:** rigger et nytt våpen (kapittel 8).
 - **Switch Follow (keep pose):** bytter Follow uten at noe hopper.
-- **Eksport:** klipp og våpenmodell, med valg av **Body** og/eller **Weapon**.
+- **Eksport:** klipp og våpenmodell, med valg av **Body** og/eller **Weapon**. **Export Character Model** lager figuren til Unity-avataren.
 - **FPS Rig – Tutorial:** interaktiv øving for nybegynnere.
 
 **Animation-fanen** øverst i Blender er ferdig oppsatt: den lille 3D-visningen viser FPS-kameraet, den store viser hele figuren, og Dope Sheet står i Action Editor. Det er den beste fanen å animere i.
@@ -144,18 +145,11 @@ Startposene har sliderne ferdig nøklet, så hver Action husker sine egne verdie
 
 ## 5. Våpen og verktøy
 
-Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som det festes til høyre hånd i Unity. Det du ser i Blender, er det du får i spillet.
+Våpenet sitter i **høyre hånd**, med **ett grep per våpen**, på samme måte som det festes til høyre hånd i Unity. Det du ser i Blender, er det du får i spillet. Grepet justerer du i 5.1.
 
 - **`WPN_Attach`** (tom med piler) er festepunktet. Origo er grepspunktet, Z-pila peker langs løpet (eller den «farlige enden»), og Y-pila peker opp.
 - **Animere våpenet i hånden:** flytt og roter `CTRL_Weapon`. Høyre hånd følger, og våpenet følger høyre hånd.
-- **Juster grepet** (hvordan våpenet sitter i hånden), én gang per våpen:
-  1. Velg en Action med våpenet.
-  2. Trykk **Adjust Grip** i FPS Rig-panelet. En oransje boks rundt våpenet blir valgt.
-  3. Flytt (**G**) og roter (**R**) til våpenet sitter godt. Venstre hånd følger med våpenet.
-  4. Trykk **Done**. Grepet gjelder alle klipp med dette våpenet, men ingen andre våpen. **Reset Grip** går tilbake til standard.
-  - Grepet animeres ikke. Det lagres i `Blender/weapon_grips.json`, så commit den fila også.
-  - Riggede våpen: trykk **Export Weapon Model** på nytt etterpå, så får Unity det nye grepet.
-  - Fingrene justerer du per klipp med `CTRL_Grip.R`, `CTRL_Thumb.R` og `CTRL_Index.R`.
+- **Sitter våpenet feil i hånden?** Juster grepet: se 5.1.
 - **Animere delene** (slide, avtrekker, magasin) på et rigget våpen: se kapittel 8.4. Delene animeres i **samme Action** som kroppen.
 - **Høyre Follow Weapon = 0:** animer `CTRL_Hand_IK.R` direkte (fint for nærkampslag). Våpenet følger fortsatt hånden, men `CTRL_Weapon` gjør da ingenting.
 - **Uten våpen:** sett Weapon for this Action = Unarmed og Follow Weapon = 0 på begge hender.
@@ -166,6 +160,22 @@ Våpenet sitter **alltid i høyre hånd** med et fast grep, på samme måte som 
   3. Flytt og roter *våpenet* til grepet ligger i origo og løpet peker langs Z-pila.
   4. Legg det i en egen samling `REF_<Navn>` under **Weapons**, så dukker det opp i våpenmenyen.
 - Ikke støttet i v1: å gi våpenet over til venstre hånd.
+
+### 5.1 Juster grepet (hvordan våpenet sitter i hånden)
+
+Eksempel: pistolen skal sitte bedre i hånden i `Pistol_Draw`.
+
+1. Velg Actionen `Pistol_Draw` og gå til en frame der pistolen vises (frame 8 eller senere).
+2. FPS Rig-panelet → Weapon-boksen → **Adjust Grip**. En oransje boks rundt våpenet blir valgt.
+3. **G** flytter og **R** roterer, til våpenet sitter godt. Se gjerne gjennom FPS-kameraet (Numpad 0) og fra siden. Høyre hånd står stille, og venstre hånd følger våpenet.
+4. Trykk **Done**. Grepet gjelder nå **alle klipp med dette våpenet**, men ingen andre våpen. **Reset Grip** går tilbake til standard.
+5. Juster fingrene til slutt. Det gjøres **per klipp** med `CTRL_Grip.R`, `CTRL_Thumb.R` og `CTRL_Index.R`. Trykk **I** på alle framene med håndnøkler (i `Pistol_Draw`: 8, 12, 16, 20 og 24), ellers glir grepet tilbake mellom nøklene.
+6. **Rigget våpen** (f.eks. M1911): trykk **Export Weapon Model** på nytt, så får Unity det nye grepet. Klippene trenger ikke eksporteres på nytt for grepets skyld.
+
+**Godt å vite:**
+- Ser du ikke **Adjust Grip**, har Actionen ikke noe våpen. Velg et under **Weapon for this Action**.
+- Trykk **Done** før du bytter Action eller våpen, ellers går endringen tapt.
+- Grepet animeres aldri. Det lagres i `Blender/weapon_grips.json`, så commit den fila sammen med `.blend`-fila.
 
 ---
 
@@ -246,11 +256,12 @@ Dette skjer når du trykker:
 4. Resultatet (med **Body** på) skrives til **`Exports/<Action-navn>.fbx`**: **kun skjelett, uten skin**, akkurat som «Without Skin» fra Mixamo.
 5. **Bruker Actionen et rigget våpen** og **Weapon** er på, lages også et våpenklipp: **`Exports/Weapons/<Våpen>/WPN_<Våpen>@<Action>.fbx`**. Det inneholder bare våpenets bein (slide, magasin osv.), målt i forhold til våpenets grep.
 6. **Export all Actions** gjør det samme for alle Actions i filen.
-7. **Export Weapon Model** (i Weapon-boksen) lager **`Exports/Weapons/<Våpen>/WPN_<Våpen>.fbx`**: våpenets deler og bein i hvilestilling, til prefaben i Unity. Kjør den på nytt når modellen endres.
+7. **Export Weapon Model** (i Weapon-boksen) lager **`Exports/Weapons/<Våpen>/WPN_<Våpen>.fbx`**: våpenets deler og bein i hvilestilling, med grepet, til prefaben i Unity. Kjør den på nytt når modellen eller grepet endres.
+8. **Export Character Model** lager **`Exports/Character/LowPolyGuy.fbx`**: den skinnede figuren i hvilestilling, til Humanoid-avataren i Unity. Kjør den på nytt når figuren byttes.
 
 **I Unity** gjør du det samme som med Mixamo-animasjoner:
 1. Dra FBX-filen inn i prosjektet.
-2. Under **Rig** velger du Animation Type **Humanoid**, Avatar Definition **Copy From Other Avatar** og den eksisterende Mixamo-avataren. Trykk **Apply**.
+2. Under **Rig** velger du Animation Type **Humanoid**, Avatar Definition **Copy From Other Avatar** og avataren fra `Exports/Character/LowPolyGuy.fbx` (se `Docs/UNITY_INTEGRATION.md` §0). Trykk **Apply**.
 3. Under **Animation** heter klippet det samme som Actionen. Huk av **Loop Time** for idle-klippene.
 4. Markørene (`WeaponShow`, `MagDrop` osv.) blir ikke med automatisk. Skjuling med skala 0 blir derimot med i klippene. Legg den inn som en **Animation Event** på samme frame (se `Docs/UNITY_INTEGRATION.md`).
 
