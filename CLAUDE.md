@@ -6,7 +6,7 @@ Build a clean, artist-friendly **full-body FPS animation rig in Blender** that e
 
 The source character is:
 
-`Source/LowPolyMale_Rigged.fbx`
+`Source/Characters/LowPolyGuy_T_Pose.fbx` (Mixamo rig, scaled to 1.75 m by the rig build; the earlier `Source/LowPolyMale_Rigged.fbx` is kept as a reference)
 
 The character uses a standard **Mixamo humanoid skeleton**. The final exported animations must remain compatible with that skeleton and Unity Humanoid.
 
@@ -156,7 +156,7 @@ Scripts may be used for one-time rig construction, baking, or export automation 
 
 ## Source safety
 
-Treat `Source/LowPolyMale_Rigged.fbx` as the reference source.
+Treat the files in `Source/` (characters, weapons, animations) as reference sources.
 
 Do not overwrite it.
 

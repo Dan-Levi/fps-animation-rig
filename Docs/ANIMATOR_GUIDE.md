@@ -330,6 +330,18 @@ Det trengs ingen bein i Max.
 
 ---
 
+## 8b. Ny figur
+
+Riggen bygges fra figuren i `Source/Characters/` (nå `LowPolyGuy_T_Pose.fbx`). En annen Mixamo-rigget figur kan tas inn slik:
+1. Last ned fra Mixamo med skin, i T-pose (FBX). Størrelsen spiller ingen rolle, for figuren skaleres til 1,75 m.
+2. Legg den i `Source/Characters/` og sett `SRC` øverst i `Blender/scripts/build_fps_rig.py`.
+3. Kjør byggeskriptet. Kontrollene, kameraet ved øynene, våpnene, startposene og pistol-idle-loopen lages på nytt for figuren.
+4. Eksporter klippene og **Export Character Model**, og lag en ny avatar i Unity (`Docs/UNITY_INTEGRATION.md` §0).
+
+Animasjoner du har laget i en eksisterende `.blend` blir ikke flyttet automatisk. Eksporter dem først. I Unity spilles de av på den nye figuren via Humanoid.
+
+---
+
 ## 9. Begrensninger og tips
 
 - **Foten roterer rundt ankelen.** Det finnes ikke hæl- eller tåpivot. For å løfte hælen roterer du foten og flytter den ned. For tåhev bøyer du også `CTRL_Toe`.

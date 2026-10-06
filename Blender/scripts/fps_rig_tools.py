@@ -6,6 +6,7 @@
 - Make / Update Weapon Rig: build a small rig for a weapon from its separate part objects.
 - Export this Action / Export all Actions: character clip (+ weapon clip) per Action.
 - Export Weapon Model: the weapon's model + skeleton for a Unity prefab.
+- Export Character Model: the skinned character at rest for the Unity Humanoid avatar.
 - FPS Rig – Tutorial: step-by-step practice for a body and a weapon animation.
 
 Embedded in Blender/FPS_Rig.blend as a text block that registers itself when the file is
@@ -692,6 +693,40 @@ def export_weapon_model(wobj, filepath=None):
         vis.__exit__()
         upd()
     print(f"Exported weapon model -> {filepath}")
+    return filepath
+
+
+def character_mesh(arm=None):
+    arm = arm or get_rig()
+    return next((o for o in bpy.data.objects if o.type == "MESH"
+                 and any(m.type == "ARMATURE" and m.object == arm for m in o.modifiers)), None)
+
+
+def export_character_model(filepath=None):
+    """Skinned character + Mixamo skeleton (and AnimCamera) at rest, for the Unity Humanoid avatar."""
+    arm = get_rig()
+    mesh = character_mesh(arm)
+    if filepath is None:
+        filepath = os.path.join(_exports_dir("Character"), f"{mesh.name}.fbx")
+    prev = arm.data.pose_position
+    hidden = {o: o.hide_get() for o in (arm, mesh)}
+    _sync_state["paused"] += 1
+    try:
+        arm.data.pose_position = "REST"
+        upd()
+        with _ExportState():
+            for o in (arm, mesh):
+                o.hide_set(False)
+                o.select_set(True)
+            bpy.context.view_layer.objects.active = arm
+            _fbx(filepath, {"ARMATURE", "MESH"}, bake=False)
+    finally:
+        arm.data.pose_position = prev
+        for o, h in hidden.items():
+            o.hide_set(h)
+        _sync_state["paused"] -= 1
+        upd()
+    print(f"Exported character model -> {filepath}")
     return filepath
 
 
@@ -1404,6 +1439,21 @@ class FPSRIG_OT_export_all(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FPSRIG_OT_export_character_model(bpy.types.Operator):
+    """Export the skinned character at rest to Exports/Character/ (for the Unity Humanoid avatar)"""
+    bl_idname = "fpsrig.export_character_model"
+    bl_label = "Export Character Model"
+
+    @classmethod
+    def poll(cls, context):
+        return get_rig() is not None and character_mesh() is not None
+
+    def execute(self, context):
+        path = export_character_model()
+        self.report({"INFO"}, f"Exported {os.path.basename(path)}")
+        return {"FINISHED"}
+
+
 class FPSRIG_OT_export_weapon_model(bpy.types.Operator):
     """Export the current Action's weapon (model + skeleton at rest) to Exports/Weapons/<Weapon>/"""
     bl_idname = "fpsrig.export_weapon_model"
@@ -1579,6 +1629,7 @@ class FPSRIG_PT_panel(bpy.types.Panel):
         row.prop(context.scene, "fpsrig_export_weapon", text="Weapon", toggle=True)
         box.operator(FPSRIG_OT_export_action.bl_idname, icon="ACTION")
         box.operator(FPSRIG_OT_export_all.bl_idname, icon="DOCUMENTS")
+        box.operator(FPSRIG_OT_export_character_model.bl_idname, icon="ARMATURE_DATA")
 
 
 class FPSRIG_PT_tutorial(bpy.types.Panel):
@@ -1624,7 +1675,7 @@ class FPSRIG_PT_tutorial(bpy.types.Panel):
 
 
 CLASSES = (FPSRIG_OT_switch_follow, FPSRIG_OT_set_weapon, FPSRIG_OT_make_weapon_rig, FPSRIG_OT_set_motion,
-           FPSRIG_OT_export_action, FPSRIG_OT_export_all, FPSRIG_OT_export_weapon_model,
+           FPSRIG_OT_export_action, FPSRIG_OT_export_all, FPSRIG_OT_export_weapon_model, FPSRIG_OT_export_character_model,
            FPSRIG_OT_fit_to_keys, FPSRIG_OT_match_end, FPSRIG_OT_select_controls,
            FPSRIG_OT_tut_nav, FPSRIG_OT_tut_run, FPSRIG_OT_tut_reset, FPSRIG_PT_panel, FPSRIG_PT_tutorial)
 

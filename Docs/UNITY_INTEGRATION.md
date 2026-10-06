@@ -2,10 +2,16 @@
 
 For den som setter opp klippene i Unity. Animatørdelen står i `ANIMATOR_GUIDE.md`.
 
+## 0. Figuren (avataren)
+
+1. Legg `Exports/Character/LowPolyGuy.fbx` i prosjektet. Den inneholder den skinnede figuren i hvilestilling, 1,75 m høy, med Mixamo-skjelettet og `AnimCamera`.
+2. Under **Rig** velger du Animation Type **Humanoid** og Avatar Definition **Create From This Model**. Trykk Apply. Dette blir avataren klippene bruker.
+3. Bytter du figur i Blender, bygges riggen på nytt og fila eksporteres igjen (**Export Character Model** i FPS Rig-panelet).
+
 ## 1. Import av et klipp
 
 1. Legg `Exports/<Navn>.fbx` i prosjektet. Filen har bare skjelett, uten skin, i meter (66 bein: Mixamo + `AnimCamera`).
-2. Under **Rig** velger du Animation Type **Humanoid**, Avatar Definition **Copy From Other Avatar** og den eksisterende Mixamo-avataren. Trykk Apply. Dette er samme arbeidsflyt som for Mixamo-klipp.
+2. Under **Rig** velger du Animation Type **Humanoid**, Avatar Definition **Copy From Other Avatar** og avataren fra `LowPolyGuy.fbx` (§0). Trykk Apply. Dette er samme arbeidsflyt som for Mixamo-klipp.
 3. Under **Animation**:
    - Klippet heter det samme som Blender-Actionen. Sjekk at Start og End stemmer med lengden.
    - Huk av **Loop Time** og **Loop Pose** for `*_Idle`-klippene.
@@ -53,7 +59,7 @@ Ryggraden bøyes i kode etter kamerapitch, f.eks. i LateUpdate eller med en Anim
 
 ## 5. AnimCamera (kamera fra animasjon)
 
-- Hvilestilling (lokal, i forhold til karakterens rot): posisjon **(0, 1.645, 0.07) m**, rotasjon identitet. +Z er fram og +Y er opp.
+- Hvilestilling (lokal, i forhold til karakterens rot): posisjon **(0, 1.621, 0.138) m**, rotasjon identitet. +Z er fram og +Y er opp.
 - Figuren trenger en transform på samme sti som i klippene: **`Armature/AnimCamera`** med hvileverdiene over. Lag den under figurens rot, eller importer figuren fra en eksport av riggen.
 - **Spill (spilleren styrer kameraet):** `offset = Inverse(rest) * current` og `camera = playerCamera * offset`. Klipp som ikke animerer kameraet gir offset lik identitet.
 - **Cutscene (animasjonen styrer kameraet):** `camera = characterRoot * currentLocal`, blandet inn og ut med en vekt.

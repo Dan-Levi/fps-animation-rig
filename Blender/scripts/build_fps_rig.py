@@ -1,4 +1,4 @@
-"""One-time construction of Blender/FPS_Rig.blend from Source/LowPolyMale_Rigged.fbx.
+"""One-time construction of Blender/FPS_Rig.blend from the character in Source/Characters/ (any Mixamo rig).
 
 Not needed for animating. Run from the repo root:
     blender -b -P Blender/scripts/build_fps_rig.py
@@ -16,7 +16,8 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-SRC = os.path.join(REPO, "Source", "LowPolyMale_Rigged.fbx")
+SRC = os.path.join(REPO, "Source", "Characters", "LowPolyGuy_T_Pose.fbx")  # Mixamo-rigged character
+CHARACTER_HEIGHT = 1.75  # metres to the top of the head (HeadTop_End); the source is scaled to this
 M1911_SRC = os.path.join(REPO, "Source", "Weapons", "M1911.fbx")  # prepared by prepare_m1911.py
 OUT = os.path.join(REPO, "Blender", "FPS_Rig.blend")
 TOOLS_SCRIPT = os.path.join(REPO, "Blender", "scripts", "fps_rig_tools.py")
@@ -26,7 +27,6 @@ import fps_rig_tools as tools  # noqa: E402  (shared keying / switch / export lo
 P = "mixamorig:"
 SIDES = {"L": "Left", "R": "Right"}
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
-EYE_WORLD = Vector((0.0, -0.070, 1.645))  # metres: between the eyes, at the eye-surface plane
 # Right-hand pistol grip, in weapon space (weapon barrel = -Y, up = +Z, pivot at the grip):
 # hand bone Y (wrist -> knuckles) and palm normal (+Z), and wrist offset (along Y, along Z) in metres.
 GRIP_HAND_Y = (0.25, -0.9, 0.25)
@@ -65,11 +65,38 @@ for o in bpy.data.objects:
     o.select_set(True)
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+# Normalise the character to CHARACTER_HEIGHT (a Mixamo download can come in any size), baked the same way
+bpy.context.view_layer.update()
+_top = (arm.matrix_world @ arm.data.bones["mixamorig:HeadTop_End"].head_local).z
+SOURCE_SCALE = CHARACTER_HEIGHT / _top
+if abs(SOURCE_SCALE - 1.0) > 1e-4:
+    arm.scale = arm.scale * SOURCE_SCALE
+    bpy.context.view_layer.update()
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+print("character scaled x%.4f to %.2f m" % (SOURCE_SCALE, CHARACTER_HEIGHT))
 
-mesh_obj = bpy.data.objects["SM_LowPolyMale"]
+mesh_obj = next(o for o in bpy.data.objects if o.type == "MESH"
+                and any(m.type == "ARMATURE" and m.object == arm for m in o.modifiers))
 MW = arm.matrix_world.copy()
 INV = MW.inverted()
 INV3 = INV.to_3x3()
+
+
+def _eye_point():
+    """Between the eyes at the face surface: 48 % from Head to HeadTop_End (checked on LowPolyGuy),
+    at the front of the head mesh at that height."""
+    head = MW @ arm.data.bones["mixamorig:Head"].head_local
+    top = MW @ arm.data.bones["mixamorig:HeadTop_End"].head_local
+    z = head.z + 0.48 * (top.z - head.z)
+    gi = mesh_obj.vertex_groups["mixamorig:Head"].index
+    face = [mesh_obj.matrix_world @ v.co for v in mesh_obj.data.vertices
+            if any(g.group == gi and g.weight > 0.5 for g in v.groups)]
+    near = [p for p in face if abs(p.z - z) < 0.02 and abs(p.x) < 0.03] or face
+    return Vector((0.0, min(p.y for p in near), z))  # the character faces -Y
+
+
+EYE_WORLD = _eye_point()
+print("eye point (m):", tuple(round(v, 3) for v in EYE_WORLD))
 
 
 def L(v):
@@ -821,8 +848,8 @@ def bat_pose(phase):
     left_hand_on_socket((0.0, -0.10, 0.0))
     set_world("CTRL_Elbow_Pole.R", (-0.50, 0.10, 1.05))
     set_world("CTRL_Elbow_Pole.L", (0.30, -0.30, 0.90))
-    fingers("R", 82, 55, thumb_spread=-60)  # thumb wrapped around the handle
-    fingers("L", 82, 55, thumb_spread=-60)
+    fingers("R", 82, -10, thumb_spread=-20)  # thumb along the handle
+    fingers("L", 82, -10, thumb_spread=-25)
 
 
 looping_action("Melee_Bat_Idle", {}, bat_pose, LOOP3)
@@ -848,7 +875,7 @@ PISTOL_SUPPORT = (-0.015, -0.025, 0.0)  # left-hand grip offset from the mirrore
 
 
 def pistol_fingers():
-    fingers("R", 70, 50, -40, thumb_spread=-50)  # thumb wrapped along the left side of the frame
+    fingers("R", 70, 20, -40, thumb_spread=10)  # thumb along the left side of the frame
     fingers("L", 78, 30)
 
 
@@ -867,22 +894,62 @@ def pistol_hip_pose(phase):
 PISTOL_IDLE_SRC = os.path.join(REPO, "Source", "Animations", "pistol_idle_loop_fit.glb")
 
 
+def _bone_dir(obj, b):
+    return ((obj.matrix_world @ b.tail_local) - (obj.matrix_world @ b.head_local)).normalized()
+
+
 def sample_clip(path):
-    """World matrices of every Mixamo bone per frame of a clip on the same skeleton, in this rig's bone axes.
-    Returns (frames, start): frames[i][bone] = world matrix. Import axes/bone orientation do not matter:
-    pose = source pose relative to the source rest, applied to this rig's rest (same rest pose)."""
+    """World matrices of every Mixamo bone per frame of a clip (GLB/FBX) made on a Mixamo skeleton, in this
+    rig's bone axes. Returns (frames, start): frames[i][bone] = world matrix.
+    Same rest pose as this rig: exact (source pose relative to its rest, applied to this rig's rest).
+    Other proportions / rest pose: retargeted - every bone points the same way as in the source, positions
+    follow this skeleton's bone lengths, the hips move scaled by hip height, and the left hand keeps its
+    place relative to the right hand (two-handed grips stay closed)."""
     before_o, before_a = set(bpy.data.objects), set(bpy.data.actions)
-    bpy.ops.import_scene.gltf(filepath=path)
+    if path.lower().endswith((".glb", ".gltf")):
+        bpy.ops.import_scene.gltf(filepath=path)
+    else:
+        bpy.ops.import_scene.fbx(filepath=path)
     src = next(o for o in bpy.data.objects if o not in before_o and o.type == "ARMATURE")
     act = src.animation_data.action
     start, end = (int(round(f)) for f in act.frame_range)
     rest = {b.name: src.matrix_world @ b.matrix_local for b in src.data.bones}
     ours = {n: MW @ arm.data.bones[n].matrix_local for n in rest if n in arm.data.bones}
+    same = max((rest[n].translation - ours[n].translation).length for n in ours) < 0.001
+    order = [b.name for b in arm.data.bones if b.name in ours]  # parents before children
+    align = {}
+    for n in ours:  # rotation taking this rig's rest bone direction onto the source's
+        align[n] = _bone_dir(arm, arm.data.bones[n]).rotation_difference(_bone_dir(src, src.data.bones[n])).to_matrix()
+    hip = P + "Hips"
+    hip_k = ours[hip].translation.z / rest[hip].translation.z
     frames = []
     for f in range(start, end + 1):
         scene.frame_set(f)
         bpy.context.view_layer.update()
-        frames.append({n: (src.matrix_world @ src.pose.bones[n].matrix) @ rest[n].inverted() @ ours[n] for n in ours})
+        pose = {n: src.matrix_world @ src.pose.bones[n].matrix for n in ours}
+        if same:
+            frames.append({n: pose[n] @ rest[n].inverted() @ ours[n] for n in ours})
+            continue
+        W = {}
+        for n in order:
+            rot = (pose[n].to_3x3() @ rest[n].to_3x3().inverted()) @ align[n] @ ours[n].to_3x3()
+            par = arm.data.bones[n].parent
+            if par is None or par.name not in W:
+                t = pose[n].translation.copy()
+                if n == hip:
+                    t = Vector((t.x, t.y, t.z * hip_k))
+            else:
+                t = W[par.name] @ (ours[par.name].inverted() @ ours[n].translation)
+            W[n] = Matrix.LocRotScale(t, rot.to_quaternion(), Vector((1, 1, 1)))
+        # two-handed grip: left hand where it was relative to the right hand in the source
+        conv = {n: Matrix.LocRotScale(pose[n].translation, W[n].to_quaternion(), Vector((1, 1, 1)))
+                for n in (P + "RightHand", P + "LeftHand")}
+        lh = W[P + "RightHand"] @ conv[P + "RightHand"].inverted() @ conv[P + "LeftHand"]
+        moved = lh @ W[P + "LeftHand"].inverted()
+        for n in order:  # carry the left fingers along with the hand
+            if n == P + "LeftHand" or n.startswith(P + "LeftHand"):
+                W[n] = moved @ W[n]
+        frames.append(W)
     for o in [o for o in bpy.data.objects if o not in before_o]:
         bpy.data.objects.remove(o)
     for a_ in [a_ for a_ in bpy.data.actions if a_ not in before_a]:
@@ -968,10 +1035,10 @@ for i in (0, n_idle // 2):
     scene.frame_set(1 + i)
     upd()
     for n, m in idle_frames[i].items():
-        if n.endswith(("_End", "4")):
+        if n.endswith(("_End", "4", "ForeArm", "Leg")):  # tips; elbows/knees are free in the IK plane
             continue
         _err = max(_err, ((MW @ pbs[n].matrix).translation - m.translation).length)
-print("pistol idle transfer: max joint error %.4f m (%d frames)" % (_err, n_idle))
+print("pistol idle transfer: max joint error %.4f m, elbows/knees excluded (%d frames)" % (_err, n_idle))
 
 # Pistol_Draw (test animation): unarmed idle -> hand to holster -> pistol appears -> hip aim
 act = new_action("Pistol_Draw", 1, 24)
@@ -995,7 +1062,7 @@ for f in (1, 4, 8, 12, 16, 20, 24):
         melee_body(0.0, lean=3 if f >= 16 else 1)
         set_world("CTRL_Elbow_Pole.R", (-0.45, 0.25 if f < 16 else 0.0, 1.0 if f < 16 else 0.95))
         right_hand_to_socket(right_keys[f])
-        fingers("R", 70, 50, -40 if f >= 12 else 0, thumb_spread=-50)
+        fingers("R", 70, 20, -40 if f >= 12 else 0, thumb_spread=10)
         if f < 16:  # left hand still relaxed, starting to come up
             set_world("CTRL_Elbow_Pole.L", (0.24, 0.45, 1.15))
             set_world("CTRL_Hand_IK.L", (0.20, -0.03 - 0.02 * (f >= 12), 0.96 + 0.06 * (f >= 12)),
@@ -1129,7 +1196,7 @@ for f in (1, 6, 8, 12, 20, 22, 26, 30, 34, 38, 44, 48, 52):
     left_hand_on_socket(PISTOL_SUPPORT)  # overridden below where the left hand is free
     pistol_fingers()
     if f == 8:
-        fingers("R", 70, 40, -40, thumb_spread=-35)  # thumb presses the magazine release
+        fingers("R", 70, 30, -40, thumb_spread=10)  # thumb presses the magazine release
     key_all(f)
     wkey(f)
 # left hand lets go at f8 and works in world space until it is back on the grip at f44
@@ -1219,7 +1286,7 @@ for f in (1, 30):
     set_world("CTRL_Hand_IK.L", grip + Vector((0, -0.19, 0)) - yl * 0.06 - zl * 0.035, yl, zl)
     set_world("CTRL_Elbow_Pole.R", (-0.55, 0.0, 0.95))
     set_world("CTRL_Elbow_Pole.L", (0.45, -0.25, 0.85))
-    fingers("R", 65, 30, -45, thumb_spread=-10)
+    fingers("R", 65, 10, -45, thumb_spread=15)
     fingers("L", 45, -10, thumb_spread=-10)
     key_all(f)
 

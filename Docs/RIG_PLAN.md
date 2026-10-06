@@ -2,7 +2,15 @@
 
 Status: implemented in `Blender/FPS_Rig.blend` (built by `Blender/scripts/build_fps_rig.py`, Blender 5.0). Blender-side verification done (§7). **Not yet production-ready:** the Unity-side checks in §7 are still open. How to use it: `Docs/ANIMATOR_GUIDE.md`. Review notes: `Docs/RIG_REVIEW.md`.
 
-## 1. Source inspection (Source/LowPolyMale_Rigged.fbx)
+## 0. Character swap (v1.7): LowPolyGuy
+
+The rig is now built from `Source/Characters/LowPolyGuy_T_Pose.fbx` (Mixamo rig, 65 bones, same names/hierarchy as before; 1 286 verts / 2 532 tris, 4 materials, no UVs yet; weights normalised, no unweighted verts). The file is 6.8 m tall; the build scales the character to `CHARACTER_HEIGHT` = 1.75 m (top of the head) and bakes it, so the rig is in metres as before. The build no longer depends on the character: the mesh is found through its Armature modifier, the eye point is measured from the head bones and mesh (48 % from `Head` to `HeadTop_End`, at the face surface), and ready-made clips are retargeted when the rest pose differs (bone directions, own bone lengths, hips scaled, left hand kept relative to the right). New character: rebuild with another `SRC`.
+
+- `AnimCamera` rest: (0, −0.138, 1.621) m in Blender = Unity (0, 1.621, 0.138). The weapon socket values are unchanged (defined in the hand bone frame).
+- `Exports/Character/LowPolyGuy.fbx`: skinned character at rest for the Unity avatar (66 bones incl. `AnimCamera`).
+- §1 below describes the first character (`Source/LowPolyMale_Rigged.fbx`).
+
+## 1. Source inspection (Source/LowPolyMale_Rigged.fbx, first character)
 
 | Item | Finding |
 |---|---|
@@ -61,15 +69,15 @@ Bone collections: **Main**, **Fingers**, **Finger Detail**, plus hidden **Deform
 
 Uses: accurate FPS preview in Blender, optional animation-driven camera offsets, and cutscenes where the animation temporarily owns the camera.
 
-- Exported bone `AnimCamera` at the eyes: (0, −0.070, 1.645) m. **Top-level** (sibling of `Hips` under the `Armature` node) – i.e. it lives in **character-root space**, the same space the Hips curve lives in.
-- In the exported FBX/Unity it has **identity rest rotation** relative to the character root (verified: FBX Lcl Rotation 0) – +Z = character forward, +Y = up. Rest local position (0, 1.645, 0.07) m.
+- Exported bone `AnimCamera` at the eyes: (0, −0.138, 1.621) m (LowPolyGuy; was (0, −0.070, 1.645) on the first character). **Top-level** (sibling of `Hips` under the `Armature` node) – i.e. it lives in **character-root space**, the same space the Hips curve lives in.
+- In the exported FBX/Unity it has **identity rest rotation** relative to the character root (verified: FBX Lcl Rotation 0) – +Z = character forward, +Y = up. Rest local position (0, 1.621, 0.138) m.
 - Why top-level and not a child of `Head`/`Hips`: a child would inherit breathing, head bob and retargeting differences, and the "offset" would have to be reconstructed by subtracting the head pose. Top-level means the curve already *is* the authored camera, with zero inherited motion. Head-following is opt-in (**Follow Head**) and gets baked into the curve only when chosen.
 - Controls: `CTRL_Camera` (animate) → `AnimCamera` (exported). `MCH_Space_Camera` blends between `CTRL_Root` (default) and the deform `Head` (**Follow Head** = 1, e.g. knockdown/get-up cutscenes).
 - `FPS_View` (Blender camera, 60° vertical FOV = Unity default, 16:9) rides on `AnimCamera`, so it shows *neutral gameplay camera + authored offset*. It does not show player look input or controller-driven crouch height.
 
 Intended Unity use (to implement and verify in Unity – not part of this repo):
 
-- `offset = Inverse(restLocal) * currentLocal`, where `restLocal` = position (0, 1.645, 0.07), identity rotation.
+- `offset = Inverse(restLocal) * currentLocal`, where `restLocal` = position (0, 1.621, 0.138), identity rotation.
 - **Gameplay** (player owns the camera): `camera = playerCamera * offset`. With `CTRL_Camera` untouched the offset is identity, so gameplay is unaffected.
 - **Cutscene** (animation owns the camera): `camera = characterRoot * currentLocal`, blended in/out with a weight. Player look is ignored while the weight is 1.
 - Root-motion caveat: like Hips, `AnimCamera` contains any travel of the body in Blender (moving `CTRL_Root`/`CTRL_Torso` for locomotion). Unity applies root motion to the GameObject but `AnimCamera` is a plain transform, so for clips that use **Apply Root Motion** the camera would be displaced twice. For camera-owned clips either keep the motion in-place (Bake Into Pose) or have the camera script subtract the root motion delta.
