@@ -39,10 +39,10 @@ Hver animasjon er en **Action** i Blender og blir én FBX-fil i Unity. Disse fø
 | `Guard_Idle` | Knyttnever oppe, lett sving og pust | – | 60 frames |
 | `Melee_Bat_Idle` | Balltre med to hender ved skulderen | Bat | 60 frames |
 | `Melee_Crowbar_Idle` | Brekkjern i høyre hånd, venstre hånd avslappet | Crowbar | 60 frames |
-| `Pistol_Idle_Hip` | Pistol med to hender i hofteposisjon, sikter mot midten av skjermen | Pistol | 60 frames |
-| `Pistol_Draw` | Fra idle trekkes pistolen, og klippet ender i `Pistol_Idle_Hip` | Pistol | nei, 24 frames |
-| `Pistol_Fire` | Skudd fra hofta: avtrekker, sliden går bak og fram, rekyl, lite kamerarykk | Pistol (animert) | nei, 12 frames |
-| `Pistol_Reload` | Magasinet glir ut og faller, nytt magasin fra venstre hofte, inn, tilbake i grepet | Pistol (animert) | nei, 52 frames |
+| `Pistol_Idle_Hip` | Pistol med to hender i hofteposisjon, sikter mot midten av skjermen | M1911 | 60 frames |
+| `Pistol_Draw` | Fra idle trekkes pistolen, og klippet ender i `Pistol_Idle_Hip` | M1911 | nei, 24 frames |
+| `Pistol_Fire` | Skudd fra hofta: avtrekkeren glir bak, hammeren faller, sliden går bak (spenner hammeren) og fram, rekyl, lite kamerarykk | M1911 (animert) | nei, 12 frames |
+| `Pistol_Reload` | Magasinet glir ut langs grepet og faller, nytt magasin fra venstre hofte, inn, tilbake i grepet | M1911 (animert) | nei, 52 frames |
 | `Example_FPS_Ready` | Rifle klar | Rifle | nei |
 
 ![Pistol_Draw](images/pistol_draw.png)
@@ -52,7 +52,7 @@ Hver animasjon er en **Action** i Blender og blir én FBX-fil i Unity. Disse fø
 **Våpen vises automatisk.** Hver Action husker hvilket våpen den bruker, og velger du en Action, vises riktig våpen.
 - **Bytte våpen for en Action:** FPS Rig-panelet → **Weapon for this Action**.
 - **Uten panelet:** i Outliner åpner du samlingen **Weapons** og klikker øye-ikonet på våpenets samling.
-- **Riggede våpen (`WPN_`):** delene kan animeres (slide, avtrekker, magasin), og våpenet får sitt eget klipp i Unity. Pistol og hagle følger med som eksempler.
+- **Riggede våpen (`WPN_`):** delene kan animeres (slide, avtrekker, magasin), og våpenet får sitt eget klipp i Unity. M1911 (fra 3ds Max) og en plassholder-hagle følger med som eksempler.
 - **Enkle referanser (`REF_`):** står stille i hånden. Det gjelder rifle, balltre, brekkjern og nøkkel.
 
 ---
@@ -265,7 +265,7 @@ Dette virker for alle våpentyper: pistol, SMG, rifle, pumpehagle, knekkhagle, r
 | **Hver bevegelig del er et eget objekt** | Hver del får sitt eget bein |
 | **Pivot (origo) i dreie- eller glidepunktet**, f.eks. avtrekkerens aksling eller magasinets topp | Delen roterer eller glir rundt riktig punkt |
 | Pivoten rettet etter verden (standard) | Glidedeler glir da langs løpet, og roterende deler roterer rundt sideaksen |
-| Navn: **`<Våpen>_<Del>`**, f.eks. `Pistol_Frame`, `Pistol_Slide`, `Pistol_Magazine` | Våpennavnet og bevegelsestypen hentes fra navnet |
+| Navn: **`<Våpen>_<Del>`**, f.eks. `M1911_Frame`, `M1911_Slide`, `M1911_Magazine` | Våpennavnet og bevegelsestypen hentes fra navnet |
 | Hoveddelen heter **`_Frame`**, **`_Body`** eller **`_Receiver`** | Den er fast og bærer resten |
 | Valgfritt: tomme objekter (Max: *Dummy/Point*) **`<Våpen>_Muzzle`** og **`<Våpen>_Eject`** | Festepunkter for munningsflamme og hylser i Unity |
 | Valgfritt hierarki: lenk en del til delen den sitter på (Max: *Link*), f.eks. `Rifle_BoltHandle` → `Rifle_Bolt` | Riggen bruker samme hierarki |
@@ -288,6 +288,13 @@ Dette virker for alle våpentyper: pistol, SMG, rifle, pumpehagle, knekkhagle, r
 
 Det trengs ingen bein i Max.
 
+**Hvor fila skal ligge:** i **`Source/Weapons/`**, f.eks. `Source/Weapons/M1911.fbx`. Aldri i `Exports/`: den mappa er for filer riggen lager, og **Export Weapon Model** skriver `Exports/Weapons/<Våpen>/WPN_<Våpen>.fbx`.
+
+**Eksempel: M1911.** Originalen fra Max ligger i `Source/Weapons/M1911_original_max.fbx`. `Blender/scripts/prepare_m1911.py` lager den ferdige `Source/Weapons/M1911.fbx`: navn `M1911_*`, avtrekker og hammer skilt ut fra rammen, magasinpivot på toppen og vippet 12° etter grepet, og Muzzle/Eject lagt til. Fila kan åpnes i Max og jobbes videre med.
+- Neste gang du eksporterer fra Max: ha **avtrekker** (`M1911_Trigger`) og **hammer** (`M1911_Hammer`) som egne objekter med pivot i akslingen. Legg **magasinpivoten øverst på magasinet**, rotert etter grepsvinkelen, så magasinet glir langs brønnen.
+- Pistolens **høyre side er −X** i Max (løpet mot −Y). Utkastervinduet og `_Eject` ligger der.
+- Modellen er omtrent 10 % større enn en ekte M1911 (24 cm lang mot 21,6 cm). Endre det i Max hvis det ikke er meningen.
+
 ### 8.2 Rigge (Blender)
 1. I `FPS_Rig.blend`: **File → Import → FBX**. Delene havner i origo.
 2. Velg **alle** delene til våpenet, også Muzzle og Eject.
@@ -309,8 +316,8 @@ Det trengs ingen bein i Max.
 - Det settes som vanlige lås-ikoner i N → Item, så du kan også slå dem av og på der.
 
 ### 8.4 Animere våpenet sammen med kroppen
-1. Velg en Action, og sett **Weapon for this Action** til våpenet (f.eks. Pistol).
-2. Velg både karakteren og våpenriggen: klikk `Armature` og Ctrl-klikk `WPN_Pistol` i Outliner. Gå så til **Pose Mode** (Ctrl+Tab). Nå kan du ta tak i kontrollene på begge.
+1. Velg en Action, og sett **Weapon for this Action** til våpenet (f.eks. M1911).
+2. Velg både karakteren og våpenriggen: trykk **Select: Weapon** i FPS Rig-panelet (eller klikk `Armature` og Ctrl-klikk `WPN_M1911` i Outliner og gå til **Pose Mode** med Ctrl+Tab). Nå kan du ta tak i kontrollene på begge.
 3. Animer kropp og våpendeler på samme tidslinje. Alt havner i **samme Action**: våpenet har sin egen «slot» i den.
 4. **Dope Sheet** (modus *Dope Sheet*) viser nøklene for begge. Action Editor viser bare det aktive objektet.
 5. Dupliserer du Actionen, får våpenet automatisk kopien.

@@ -17,6 +17,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SRC = os.path.join(REPO, "Source", "LowPolyMale_Rigged.fbx")
+M1911_SRC = os.path.join(REPO, "Source", "Weapons", "M1911.fbx")  # prepared by prepare_m1911.py
 OUT = os.path.join(REPO, "Blender", "FPS_Rig.blend")
 TOOLS_SCRIPT = os.path.join(REPO, "Blender", "scripts", "fps_rig_tools.py")
 sys.path.insert(0, os.path.dirname(TOOLS_SCRIPT))
@@ -568,19 +569,20 @@ def model_empty(name, location):
 ORANGE, GREY, DARK, BROWN, STEEL, GOLD = (0.9, 0.45, 0.1, 1), (0.25, 0.25, 0.28, 1), (0.12, 0.12, 0.14, 1), \
     (0.55, 0.35, 0.2, 1), (0.45, 0.5, 0.55, 1), (0.85, 0.7, 0.2, 1)
 
-# Rigged placeholder pistol (Frame, Slide, Trigger, Magazine + Muzzle/Eject), built with the panel's tool
-PISTOL_PARTS = [
-    model_part("Pistol_Frame", [((0, 0.005, -0.005), (0.028, 0.045, 0.11)), ((0, -0.075, 0.035), (0.026, 0.13, 0.025)),
-                                ((0, -0.045, 0.006), (0.008, 0.045, 0.006))], (0, 0, 0), GREY),
-    model_part("Pistol_Slide", [((0, -0.06, 0.065), (0.03, 0.19, 0.035)), ((0, -0.145, 0.086), (0.004, 0.006, 0.007)),
-                                ((0, 0.025, 0.086), (0.02, 0.006, 0.007))], (0, -0.06, 0.065), DARK),
-    model_part("Pistol_Trigger", [((0, -0.038, 0.013), (0.006, 0.008, 0.024))], (0, -0.036, 0.026), DARK),
-    model_part("Pistol_Magazine", [((0, 0.008, -0.012), (0.022, 0.034, 0.11)), ((0, 0.008, -0.07), (0.026, 0.04, 0.008))],
-               (0, 0.008, 0.04), STEEL),
-    model_empty("Pistol_Muzzle", (0, -0.16, 0.065)),
-    model_empty("Pistol_Eject", (0.016, -0.035, 0.075)),
-]
-WPN_PISTOL = tools.make_weapon_rig(PISTOL_PARTS, arm, attach)
+# M1911 from 3ds Max (Source/Weapons/M1911.fbx, prepared by prepare_m1911.py), rigged with the panel's tool
+WEAPON = "M1911"
+_before = set(bpy.data.objects)
+bpy.ops.import_scene.fbx(filepath=M1911_SRC)
+M1911_PARTS = [o for o in bpy.data.objects if o not in _before and o.name.startswith(WEAPON + "_")]
+bpy.context.view_layer.update()
+_mag = bpy.data.objects[f"{WEAPON}_Magazine"]
+MAG_REST = Matrix.LocRotScale(_mag.matrix_world.translation, _mag.matrix_world.to_quaternion(), Vector((1, 1, 1)))
+MAG_AXIS = (MAG_REST.to_3x3() @ Vector((0, 0, 1))).normalized()       # magazine slides along this (grip angle)
+_mag_pts = [_mag.matrix_world @ v.co for v in _mag.data.vertices]
+_mag_c = sum(_mag_pts, Vector()) / len(_mag_pts)
+MAG_BASE = _mag_c + MAG_AXIS * min((q - _mag_c).dot(MAG_AXIS) for q in _mag_pts)  # base plate (modelling frame)
+WPN_PISTOL = tools.make_weapon_rig(M1911_PARTS, arm, attach)
+tools.set_motion(WPN_PISTOL.pose.bones["CTRL_Trigger"], "SLIDE", "Y")  # the M1911 trigger slides straight back
 
 # Rigged placeholder shotgun (Receiver, Pump, Trigger, Shell) - same tool, different weapon type
 SHOTGUN_PARTS = [
@@ -591,7 +593,7 @@ SHOTGUN_PARTS = [
     model_part("Shotgun_Trigger", [((0, -0.04, 0.015), (0.006, 0.008, 0.024))], (0, -0.038, 0.028), DARK),
     model_part("Shotgun_Shell", [((0, -0.06, 0.02), (0.02, 0.065, 0.02))], (0, -0.06, 0.02), (0.7, 0.1, 0.1, 1)),
     model_empty("Shotgun_Muzzle", (0, -0.755, 0.08)),
-    model_empty("Shotgun_Eject", (0.025, -0.08, 0.07)),
+    model_empty("Shotgun_Eject", (-0.025, -0.08, 0.07)),  # right side of the weapon = -X
 ]
 WPN_SHOTGUN = tools.make_weapon_rig(SHOTGUN_PARTS, arm, attach)
 
@@ -915,7 +917,8 @@ print("draw end: left hand on pistol error %.4f m" % (
 
 # ---------------------------------------------------------------- weapon animation examples (Pistol)
 # Character + pistol parts in ONE Action: the pistol rig gets its own slot (tools.ensure_weapon_action).
-W_CTRLS = ("CTRL_Root", "CTRL_Slide", "CTRL_Trigger", "CTRL_Magazine")
+TRIGGER_TRAVEL, HAMMER_FALL = 0.004, 35.0  # m back / degrees forward (sign checked at build time)
+W_CTRLS = ("CTRL_Root", "CTRL_Slide", "CTRL_Trigger", "CTRL_Hammer", "CTRL_Magazine")
 
 
 def wpb(n):
@@ -942,7 +945,7 @@ def tilt(aim, up, deg):
 
 def pistol_root_world():
     upd()
-    return WPN_PISTOL.matrix_world @ WPN_PISTOL.pose.bones["Pistol_Root"].matrix  # modelling frame -> world
+    return WPN_PISTOL.matrix_world @ WPN_PISTOL.pose.bones[f"{WEAPON}_Root"].matrix  # modelling frame -> world
 
 
 def set_weapon_ctrl_world(name, world):
@@ -965,12 +968,13 @@ for f, shown in ((1, 0.0), (7, 0.0), (8, 1.0), (24, 1.0)):
 
 # Pistol_Fire: hip shot - trigger, slide cycle, recoil in the hands, small camera kick
 act = new_action("Pistol_Fire", 1, 12)
-tools.set_action_weapon(act, "Pistol")
+tools.set_action_weapon(act, WEAPON)
 act.pose_markers.new("Fire").frame = 2
-FIRE = {1: (0, 0, 0, 0), 2: (1.0, 1.0, 0.75, 0.6), 3: (1.0, 1.0, 1.0, 1.0), 4: (0.0, 0.5, 0.7, 0.7),
-        5: (0.0, 0.0, 0.35, 0.4), 6: (0.0, 0.0, -0.08, 0.15), 8: (0.0, 0.0, 0.03, 0.05),
-        12: (0, 0, 0, 0)}  # slide, trigger, kick (negative = settle overshoot), camera (0..1)
-for f, (sl, tr, kick, cam) in FIRE.items():
+FIRE = {1: (0, 0, 0, 0, 0), 2: (0.0, 1.0, 0.75, 0.6, 1.0), 3: (1.0, 1.0, 1.0, 1.0, -1.0), 4: (0.0, 0.5, 0.7, 0.7, 0),
+        5: (0.0, 0.0, 0.35, 0.4, 0), 6: (0.0, 0.0, -0.08, 0.15, 0), 8: (0.0, 0.0, 0.03, 0.05, 0),
+        12: (0, 0, 0, 0, 0)}  # slide, trigger, kick (negative = settle overshoot), camera (0..1), hammer (1 = fallen)
+# M1911: modelled with the hammer cocked; it falls on the shot and the slide cocks it again (slightly past)
+for f, (sl, tr, kick, cam, hm) in FIRE.items():
     scene.frame_set(f)
     reset_pose()
     wreset()
@@ -985,23 +989,22 @@ for f, (sl, tr, kick, cam) in FIRE.items():
     pistol_fingers()
     rot("CTRL_Camera", -1.5 * cam)  # camera control: -X pitches up
     wpb("CTRL_Slide").location = (0, 0.026 * sl, 0)  # slide back along the barrel axis
-    wpb("CTRL_Trigger").rotation_euler = (math.radians(22 * tr), 0, 0)
+    wpb("CTRL_Trigger").location = (0, TRIGGER_TRAVEL * tr, 0)  # the trigger slides straight back
+    wpb("CTRL_Hammer").rotation_euler = (math.radians(HAMMER_FALL * hm), 0, 0)
     key_all(f)
     wkey(f)
 
 # Pistol_Reload: magazine out, new magazine from the left hip, inserted, back to two-handed grip
 act = new_action("Pistol_Reload", 1, 52)
-tools.set_action_weapon(act, "Pistol")
+tools.set_action_weapon(act, WEAPON)
 for name, frame_ in (("MagOut", 8), ("MagDrop", 12), ("MagShow", 22), ("MagIn", 34)):
     act.pose_markers.new(name).frame = frame_
 R_POS = Vector((-0.07, -0.33, 1.34))
 R_AIM = Vector((0.18, -0.9, 0.40)).normalized()
 R_UP = Vector((0.45, 0.05, 0.9))
-MAG_REST = Matrix.Translation((0, 0.008, 0.04))                       # magazine pivot (modelling frame)
 _yh = Vector((-0.3, -0.95, 0.05)).normalized()
-_zh = Vector((0, 0, 1))
-_base = Vector((0, 0.008, -0.074))                                     # magazine base plate
-HAND_INSERT = Matrix.Translation(_base - _yh * 0.06 - _zh * 0.03) @ frame(_yh, _zh).to_4x4()  # palm under the mag
+_zh = MAG_AXIS                                                          # palm pushes along the magazine well
+HAND_INSERT = Matrix.Translation(MAG_BASE - _yh * 0.06 - _zh * 0.03) @ frame(_yh, _zh).to_4x4()  # palm under the mag
 MAG_IN_HAND = HAND_INSERT.inverted() @ MAG_REST                        # magazine relative to the left hand
 for f in (1, 6, 8, 12, 20, 22, 26, 30, 34, 38, 44, 48, 52):
     scene.frame_set(f)
@@ -1036,7 +1039,7 @@ for f in (12, 20, 22, 26, 30, 34, 38):
         pos, y, z, (g, t) = LEFT_FREE[f]
         set_world("CTRL_Hand_IK.L", pos, y, z)
     else:  # f30: magazine 6 cm below the grip, f34/f38: pushed in
-        below = Matrix.Translation((0, 0, -0.06)) if f == 30 else Matrix()
+        below = Matrix.Translation(-MAG_AXIS * 0.06) if f == 30 else Matrix()
         set_world_matrix("CTRL_Hand_IK.L", pistol_root_world() @ below @ HAND_INSERT)
         g, t = 60, 35
     fingers("L", g, t)
@@ -1058,10 +1061,10 @@ for f in (48, 52):
     tools.key_control(arm, "CTRL_Hand_IK.L", f)
 # magazine: slides out (f8-12), falls (f12-16), hidden (scale 0, f17-21), appears in the left hand (f22),
 # inserted (f34). In Unity the MagDrop event can instead hide it and spawn a physics magazine at f12.
-for f, out in ((10, 0.05), (12, 0.13)):
+for f, out in ((10, 0.05), (12, 0.13)):  # slides out along the magazine well (grip angle)
     scene.frame_set(f)
     wpb("CTRL_Magazine")["Follow Left Hand"] = 0.0
-    wpb("CTRL_Magazine").matrix_basis = Matrix.Translation((0, 0, -out))
+    set_weapon_ctrl_world("CTRL_Magazine", pistol_root_world() @ Matrix.Translation(-MAG_AXIS * out) @ MAG_REST)
     wkey(f, ("CTRL_Magazine",))
 scene.frame_set(12)
 mag12 = (WPN_PISTOL.matrix_world @ wpb("CTRL_Magazine").matrix).copy()
@@ -1113,8 +1116,8 @@ for f in (1, 30):
 
 # Which weapon each Action uses (the FPS Rig panel shows it and shares the Action with a rigged weapon)
 for name, w in {"Unarmed_Idle": "", "Guard_Idle": "", "Melee_Bat_Idle": "Bat", "Melee_Crowbar_Idle": "Crowbar",
-                "Pistol_Idle_Hip": "Pistol", "Pistol_Draw": "Pistol", "Pistol_Fire": "Pistol",
-                "Pistol_Reload": "Pistol", "Example_FPS_Ready": "Rifle"}.items():
+                "Pistol_Idle_Hip": WEAPON, "Pistol_Draw": WEAPON, "Pistol_Fire": WEAPON,
+                "Pistol_Reload": WEAPON, "Example_FPS_Ready": "Rifle"}.items():
     bpy.data.actions[name]["Weapon"] = w
 
 # Open on the neutral idle, no weapon shown

@@ -145,6 +145,12 @@ Still open – needs the Unity project:
 - The "Animation" workspace: small 3D view through `FPS_View`, Dope Sheet in Action Editor mode.
 - **FPS Rig – Tutorial** sub-panel: two data-driven, step-by-step tutorials (`Tut_Crouch`, `Tut_PistolCheck`) with automatic step checks and *Prepare* / *Show me* buttons. They use the same functions as the panel. *Start over* deletes the practice Action. Practice exports are git-ignored.
 
+## 7e. M1911 (v1.5)
+
+- The placeholder pistol is replaced by the user's M1911 from 3ds Max: `Source/Weapons/M1911_original_max.fbx` → `Blender/scripts/prepare_m1911.py` → `Source/Weapons/M1911.fbx` (parts `M1911_*`, trigger and hammer split from the frame, magazine pivot on top and tilted 12° with the grip, Muzzle/Eject added; cm, Y-up, readable by Max). The build imports it and rigs `WPN_M1911`; the pistol clips keep their names (`Pistol_*`) with Weapon = M1911.
+- M1911 specifics: the trigger slides (Motion SLIDE Y); the hammer is modelled cocked, falls on the shot and is pushed back by the slide; the magazine leaves along the well (`MAG_AXIS`).
+- Weapon right side = −X in the modelling frame (barrel −Y, up +Z); `_Eject` points sit there (the old placeholders had them on the left).
+
 ## 8. Out of scope for this version
 
 - Foot: no heel/toe roll pivots or roll slider – the foot rotates around the ankle, so heel-lifts and tip-toe need foot rotation plus a counter-move, or `CTRL_Toe`. No knee-snap softening: near full leg extension the IK can pop. No automatic floor contact.

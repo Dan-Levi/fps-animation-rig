@@ -945,7 +945,7 @@ def _quat_at(obj, bone, frame):
 
 TUT = {
     "BODY": {"action": "Tut_Crouch", "source": "Unarmed_Idle", "range": (1, 30), "weapon": ""},
-    "WEAPON": {"action": "Tut_PistolCheck", "source": "Pistol_Idle_Hip", "range": (1, 40), "weapon": "Pistol"},
+    "WEAPON": {"action": "Tut_PistolCheck", "source": "Pistol_Idle_Hip", "range": (1, 40), "weapon": "M1911"},
 }
 
 
@@ -1213,9 +1213,9 @@ TUTORIALS = {
             "«Vis meg» lager Tut_PistolCheck",
             "(kopi av Pistol_Idle_Hip, 40 frames).",
             "Pistolen vises automatisk, fordi",
-            "Actionen bruker våpenet «Pistol»."],
+            "Actionen bruker våpenet «M1911»."],
          "do": lambda: tut_new_action("WEAPON"),
-         "check": lambda: tut_action_ok("WEAPON") and _active_action().get("Weapon") == "Pistol"},
+         "check": lambda: tut_action_ok("WEAPON") and _active_action().get("Weapon") == "M1911"},
         {"title": "2. Velg begge riggene", "text": [
             "Trykk «Select: Weapon» i FPS Rig.",
             "Da er figuren og pistolen i Pose Mode",
@@ -1262,11 +1262,11 @@ TUTORIALS = {
             "Kryss av Body og Weapon, og trykk",
             "«Export this Action». Du får:",
             " Exports/Tut_PistolCheck.fbx (kropp)",
-            " Exports/Weapons/Pistol/",
-            "   WPN_Pistol@Tut_PistolCheck.fbx"],
+            " Exports/Weapons/M1911/",
+            "   WPN_M1911@Tut_PistolCheck.fbx"],
          "do": _export_do("WEAPON"),
          "check": lambda: os.path.exists(_export_path("Tut_PistolCheck.fbx")) and os.path.exists(
-             _export_path("Weapons", "Pistol", "WPN_Pistol@Tut_PistolCheck.fbx"))},
+             _export_path("Weapons", "M1911", "WPN_M1911@Tut_PistolCheck.fbx"))},
         {"title": "Ferdig!", "text": [
             "Kropp og våpen er animert i samme",
             "Action og eksportert hver for seg.",

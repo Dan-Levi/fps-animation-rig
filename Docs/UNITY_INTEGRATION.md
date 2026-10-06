@@ -64,7 +64,7 @@ Ryggraden bøyes i kode etter kamerapitch, f.eks. i LateUpdate eller med en Anim
 
 - Humanoid-retargeting (muskelgrenser, arm stretch) kan flytte hendene noen millimeter. Støttehånden kan da ligge litt utenfor våpenet. Runtime left-hand IK løser det.
 - Blender-markører (`WeaponShow`, `MagDrop` osv.) blir ikke med i FBX-en og må legges inn som Events manuelt.
-- Skjuling i klippene skjer med skala 0 på beinet (`Pistol_Root` i `Pistol_Draw` frame 1–7, `Pistol_Magazine` i `Pistol_Reload` frame 17–21). Unity spiller av dette uten ekstra kode.
+- Skjuling i klippene skjer med skala 0 på beinet (`M1911_Root` i `Pistol_Draw` frame 1–7, `M1911_Magazine` i `Pistol_Reload` frame 17–21). Unity spiller av dette uten ekstra kode.
 
 ## 7. Riggede våpen (slide, avtrekker, magasin)
 
@@ -77,14 +77,15 @@ Hvert riggede våpen eksporteres fra Blender som to slags filer i `Exports/Weapo
 
 **Våpenets oppbygning i Unity:**
 ```
-WPN_Pistol            (prefab-rot)
-└ WPN_Pistol          (armatur-node, ingen rotasjon/skala)
-  └ Pistol_Root       (grepspunktet = socket-origo)
-    ├ Pistol_Slide    (+ mesh Pistol_Slide)
-    ├ Pistol_Trigger
-    ├ Pistol_Magazine
-    ├ Pistol_Muzzle   (effektpunkt: munningsflamme)
-    └ Pistol_Eject    (effektpunkt: hylser)
+WPN_M1911             (prefab-rot)
+└ WPN_M1911           (armatur-node, ingen rotasjon/skala)
+  └ M1911_Root        (grepspunktet = socket-origo, + mesh M1911_Frame)
+    ├ M1911_Slide     (+ mesh M1911_Slide)
+    ├ M1911_Trigger   (glir bakover)
+    ├ M1911_Hammer    (roterer)
+    ├ M1911_Magazine
+    ├ M1911_Muzzle    (effektpunkt: munningsflamme)
+    └ M1911_Eject     (effektpunkt: hylser, høyre side)
 ```
 - Legg prefaben som barn av **`WeaponSocket`** (under `mixamorig:RightHand`, se §3) med **posisjon 0 og rotasjon 0**. Våpenets +Z er løpet, +Y er opp, og origo er grepet. Det er de samme aksene som socketen.
 - Prefaben får sin egen **Animator**, med tilstander som heter det samme som karakterklippene: `Pistol_Idle_Hip`, `Pistol_Fire`, `Pistol_Reload` …
@@ -95,7 +96,7 @@ WPN_Pistol            (prefab-rot)
   ```
   Klippene er laget på samme tidslinje i Blender, så de holder takt når de startes samtidig.
 - **Events** fra Blender-markørene legges inn som Animation Events. Det går greit på karakterklippet, eller på våpenklippet hvis du vil at våpenet skal styre effektene selv:
-  - `Fire`: munningsflamme, lyd og hylse ved `Pistol_Muzzle`/`Pistol_Eject`.
+  - `Fire`: munningsflamme, lyd og hylse ved `M1911_Muzzle`/`M1911_Eject`.
   - `MagDrop` (frame 12): magasinet er fri av våpenet. Spawn eventuelt et fysisk magasin her, og skjul klippets magasin. Klippet skjuler det uansett med skala 0 fra frame 17.
   - `MagShow`: vis magasinet, som da sitter i venstre hånd.
   - `MagIn`: magasinet sitter. Fyll ammunisjonen.
