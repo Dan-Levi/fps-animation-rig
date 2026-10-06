@@ -151,6 +151,12 @@ Still open – needs the Unity project:
 - M1911 specifics: the trigger slides (Motion SLIDE Y); the hammer is modelled cocked, falls on the shot and is pushed back by the slide; the magazine leaves along the well (`MAG_AXIS`).
 - Weapon right side = −X in the modelling frame (barrel −Y, up +Z); `_Eject` points sit there (the old placeholders had them on the left).
 
+## 7f. Imported clips (v1.6)
+
+- `Pistol_Idle_Hip` now comes from the user's loop `Source/Animations/pistol_idle_loop_fit.glb` (same Mixamo skeleton and rest pose, 30 fps, 50-frame seamless loop). The build samples it (`sample_clip`: source pose relative to the source rest, applied to this rig's rest, so import axes and bone orientations do not matter) and sets every control per frame (`pose_from_world`): torso/hips, spine, neck, head, shoulders, hand IK (weapon placed from the right hand via the socket), elbow/knee poles (with the rest pole offset of each limb), foot IK, toes and every finger/thumb detail control. Keys on every frame, cyclic.
+- Accuracy: hands, fingers, spine, feet exact; elbows/knees within 4.3 mm (IK); exported FBX vs the GLB within 4.3 mm.
+- The other pistol clips still use the procedural hip pose; their weapon pose differs from the idle's first frame by about 4 cm / 14°.
+
 ## 8. Out of scope for this version
 
 - Foot: no heel/toe roll pivots or roll slider – the foot rotates around the ankle, so heel-lifts and tip-toe need foot rotation plus a counter-move, or `CTRL_Toe`. No knee-snap softening: near full leg extension the IK can pop. No automatic floor contact.

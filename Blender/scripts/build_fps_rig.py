@@ -862,7 +862,116 @@ def pistol_hip_pose(phase):
     pistol_fingers()
 
 
-looping_action("Pistol_Idle_Hip", {}, pistol_hip_pose, LOOP3)
+# Pistol_Idle_Hip: the user's loop (Source/Animations/pistol_idle_loop_fit.glb, made on this character's
+# Mixamo skeleton) transferred onto the controls, so it stays editable here and bakes back exactly.
+PISTOL_IDLE_SRC = os.path.join(REPO, "Source", "Animations", "pistol_idle_loop_fit.glb")
+
+
+def sample_clip(path):
+    """World matrices of every Mixamo bone per frame of a clip on the same skeleton, in this rig's bone axes.
+    Returns (frames, start): frames[i][bone] = world matrix. Import axes/bone orientation do not matter:
+    pose = source pose relative to the source rest, applied to this rig's rest (same rest pose)."""
+    before_o, before_a = set(bpy.data.objects), set(bpy.data.actions)
+    bpy.ops.import_scene.gltf(filepath=path)
+    src = next(o for o in bpy.data.objects if o not in before_o and o.type == "ARMATURE")
+    act = src.animation_data.action
+    start, end = (int(round(f)) for f in act.frame_range)
+    rest = {b.name: src.matrix_world @ b.matrix_local for b in src.data.bones}
+    ours = {n: MW @ arm.data.bones[n].matrix_local for n in rest if n in arm.data.bones}
+    frames = []
+    for f in range(start, end + 1):
+        scene.frame_set(f)
+        bpy.context.view_layer.update()
+        frames.append({n: (src.matrix_world @ src.pose.bones[n].matrix) @ rest[n].inverted() @ ours[n] for n in ours})
+    for o in [o for o in bpy.data.objects if o not in before_o]:
+        bpy.data.objects.remove(o)
+    for a_ in [a_ for a_ in bpy.data.actions if a_ not in before_a]:
+        bpy.data.actions.remove(a_)
+    return frames, start
+
+
+def rest_world(name):
+    return MW @ arm.data.bones[name].matrix_local
+
+
+def put_like(ctrl, deform_world, deform, keep_loc=False):
+    """Pose a control so the bone it drives gets deform_world (control and deform may differ in rest/roll)."""
+    set_world_matrix(ctrl, deform_world @ rest_world(deform).inverted() @ rest_world(ctrl))
+    if not keep_loc and all(pbs[ctrl].lock_location):
+        pbs[ctrl].location = (0, 0, 0)
+        upd()
+
+
+def _bend_dir(a, m, e):
+    axis = (e - a).normalized()
+    out = m - (a + e) / 2
+    return axis, (out - axis * out.dot(axis)).normalized()
+
+
+# Angle (around root->end) between a limb's bend direction and its pole at rest: the IK pole angle
+# rotates the chain, so the pole must sit this far around the axis from the bend side.
+POLE_OFFSET = {}
+for _s, _side in SIDES.items():
+    for _key, (_r, _m, _e, _pole) in {"arm": ("Arm", "ForeArm", "Hand", "CTRL_Elbow_Pole"),
+                                       "leg": ("UpLeg", "Leg", "Foot", "CTRL_Knee_Pole")}.items():
+        _a, _mm, _ee = (rest_world(P + f"{_side}{x}").translation for x in (_r, _m, _e))
+        _axis, _out = _bend_dir(_a, _mm, _ee)
+        _pv = rest_world(f"{_pole}.{_s}").translation - _mm
+        _pv = (_pv - _axis * _pv.dot(_axis)).normalized()
+        POLE_OFFSET[(_key, _s)] = math.atan2(_out.cross(_pv).dot(_axis), _out.dot(_pv))
+
+
+def pole_for(root, mid, end, dist, key):
+    """Pole position for the middle joint, with the rest-pose pole offset of this limb."""
+    a, m, e = root.translation, mid.translation, end.translation
+    axis, out = _bend_dir(a, m, e)
+    return m + (Matrix.Rotation(POLE_OFFSET[key], 3, axis) @ out) * dist
+
+
+def pose_from_world(W):
+    """Set every control from deform-bone world matrices W (dict bone -> world)."""
+    hips = W[P + "Hips"]
+    t_rest = rest_world("CTRL_Torso")
+    set_world_matrix("CTRL_Torso", Matrix.Translation(hips.translation - rest_world(P + "Hips").translation) @ t_rest)
+    put_like("CTRL_Hips", hips, P + "Hips")
+    for d, c in (("Spine", "CTRL_Spine"), ("Spine1", "CTRL_Chest"), ("Spine2", "CTRL_UpperChest"),
+                 ("Neck", "CTRL_Neck"), ("Head", "CTRL_Head")):
+        put_like(c, W[P + d], P + d)
+    for s, side in SIDES.items():
+        put_like(f"CTRL_Shoulder.{s}", W[P + f"{side}Shoulder"], P + f"{side}Shoulder")
+    # the weapon rides in the right hand: socket where the right hand puts it
+    sock = W[P + "RightHand"] @ rest_world(P + "RightHand").inverted() @ rest_world("WPN_Socket")
+    set_world_matrix("CTRL_Weapon", sock @ rest_world("WPN_Socket").inverted() @ rest_world("CTRL_Weapon"))
+    for s, side in SIDES.items():
+        put_like(f"CTRL_Hand_IK.{s}", W[P + f"{side}Hand"], P + f"{side}Hand", keep_loc=True)
+        set_world(f"CTRL_Elbow_Pole.{s}", pole_for(W[P + f"{side}Arm"], W[P + f"{side}ForeArm"], W[P + f"{side}Hand"], 0.45, ("arm", s)))
+        put_like(f"CTRL_Foot_IK.{s}", W[P + f"{side}Foot"] @ rest_world(P + f"{side}Foot").inverted()
+                 @ rest_world(f"MCH_Foot.{s}"), f"MCH_Foot.{s}", keep_loc=True)
+        set_world(f"CTRL_Knee_Pole.{s}", pole_for(W[P + f"{side}UpLeg"], W[P + f"{side}Leg"], W[P + f"{side}Foot"], 0.50, ("leg", s)))
+        put_like(f"CTRL_Toe.{s}", W[P + f"{side}ToeBase"], P + f"{side}ToeBase")
+        for f in FINGERS:
+            for i in (1, 2, 3):
+                put_like(f"CTRL_{f}{i}.{s}", W[P + f"{side}Hand{f}{i}"], P + f"{side}Hand{f}{i}")
+
+
+idle_frames, _ = sample_clip(PISTOL_IDLE_SRC)
+n_idle = len(idle_frames) - 1  # last sample = first (seamless loop)
+new_action("Pistol_Idle_Hip", 1, n_idle)
+for i, W in enumerate(idle_frames):
+    scene.frame_set(1 + i)
+    reset_pose()
+    pose_from_world(W)
+    key_all(1 + i)
+make_cyclic()
+_err = 0.0
+for i in (0, n_idle // 2):
+    scene.frame_set(1 + i)
+    upd()
+    for n, m in idle_frames[i].items():
+        if n.endswith(("_End", "4")):
+            continue
+        _err = max(_err, ((MW @ pbs[n].matrix).translation - m.translation).length)
+print("pistol idle transfer: max joint error %.4f m (%d frames)" % (_err, n_idle))
 
 # Pistol_Draw (test animation): unarmed idle -> hand to holster -> pistol appears -> hip aim
 act = new_action("Pistol_Draw", 1, 24)

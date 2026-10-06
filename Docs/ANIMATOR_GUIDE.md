@@ -39,7 +39,7 @@ Hver animasjon er en **Action** i Blender og blir én FBX-fil i Unity. Disse fø
 | `Guard_Idle` | Knyttnever oppe, lett sving og pust | – | 60 frames |
 | `Melee_Bat_Idle` | Balltre med to hender ved skulderen | Bat | 60 frames |
 | `Melee_Crowbar_Idle` | Brekkjern i høyre hånd, venstre hånd avslappet | Crowbar | 60 frames |
-| `Pistol_Idle_Hip` | Pistol med to hender i hofteposisjon, sikter mot midten av skjermen | M1911 | 60 frames |
+| `Pistol_Idle_Hip` | Pistol med to hender, sikter framover (ferdig loop fra `Source/Animations/pistol_idle_loop_fit.glb`, overført til kontrollene) | M1911 | 50 frames |
 | `Pistol_Draw` | Fra idle trekkes pistolen, og klippet ender i `Pistol_Idle_Hip` | M1911 | nei, 24 frames |
 | `Pistol_Fire` | Skudd fra hofta: avtrekkeren glir bak, hammeren faller, sliden går bak (spenner hammeren) og fram, rekyl, lite kamerarykk | M1911 (animert) | nei, 12 frames |
 | `Pistol_Reload` | Magasinet glir ut langs grepet og faller, nytt magasin fra venstre hofte, inn, tilbake i grepet | M1911 (animert) | nei, 52 frames |
@@ -287,6 +287,8 @@ Dette virker for alle våpentyper: pistol, SMG, rifle, pumpehagle, knekkhagle, r
 3. Velg **File → Export Selected → FBX**: enhet **Centimeters**, **Y-up** (Max sin standard). Ingen animasjon, kamera eller lys.
 
 Det trengs ingen bein i Max.
+
+**Ferdige animasjoner** (f.eks. en GLB eller FBX laget på denne karakteren) legges i **`Source/Animations/`**. Byggeskriptet overfører dem til kontrollene med `sample_clip()` + `pose_from_world()`, slik at de kan redigeres videre i Blender og eksporteres som vanlige klipp. Kravet er at klippet er laget på det samme Mixamo-skjelettet.
 
 **Hvor fila skal ligge:** i **`Source/Weapons/`**, f.eks. `Source/Weapons/M1911.fbx`. Aldri i `Exports/`: den mappa er for filer riggen lager, og **Export Weapon Model** skriver `Exports/Weapons/<Våpen>/WPN_<Våpen>.fbx`.
 
